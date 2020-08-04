@@ -1,0 +1,6 @@
+venv/
+config
+__pycache__/
+.idea/
+config
+*.svg
