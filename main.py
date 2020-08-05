@@ -50,6 +50,7 @@ class MainView(Tk):
         self.menubar.add_cascade(label="File", menu=self.filemenu)
         self.filemenu.add_command(label="Profiles", command=self.open_profiles)
         self.filemenu.add_command(label="Exit", command=self.destroy)
+        self.menubar.add_command(label="Search", command=self.search)
         
         frame = Frame(self)
 
@@ -59,7 +60,7 @@ class MainView(Tk):
         self.profileCB.grid(row=0, column=1, sticky=EW, columnspan=3)
 
         Label(frame, text="host:").grid(row=1, column=0, sticky=W)
-        self.connectionCB = Combobox(frame, values=list(map(lambda x: x[1]["host"], self.conf.items())))
+        self.connectionCB = Combobox(frame, values=list(set(map(lambda x: x[1]["host"], self.conf.items()))))
         self.connectionCB.grid(row=1, column=1, sticky=EW, columnspan=1)
 
         Label(frame, text="mode:").grid(row=1, column=2, sticky=W, padx=3)
@@ -99,6 +100,7 @@ class MainView(Tk):
         self.tree.column("size", minwidth=80, width=80, stretch=False)
         self.tree.pack(fill=BOTH, expand=True)
         self.tree.bind("<Double-1>", self.cwd_dnl)
+        self.tree.bind("<Return>", self.cwd_dnl)
         self.tree.bind("<Button-1>", self.selection)
         self.tree.bind('<FocusIn>', self.on_get_focus)
         self.tree.bind("<Button-3>", self.context)
@@ -142,10 +144,20 @@ class MainView(Tk):
             self.ctx.destroy()
             self.ctx = None
 
+    def search(self, event=None):  # todo
+        messagebox.showinfo("Not yet", "Work in progress", parent=self)
+
     def cwd_dnl(self, event=None):
         self.selection()
 
-        item = self.tree.identify('item',event.x,event.y)
+        item = ""
+        if str(event.type) == "ButtonPress":
+            item = self.tree.identify('item',event.x,event.y)
+        elif event.keysym == "Return":
+            sel = self.tree.selection()
+            if len(sel) > 0:
+                item = self.tree.selection()[0]
+
         p = ""
         item_name = self.tree.item(item, "text")
         if item_name == "..":
@@ -239,6 +251,9 @@ class MainView(Tk):
                 self.tree.insert("", END, text=p[0],
                                  values=(d[0], dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "", d[4], d[0][0] == "d", dt.timestamp() if dt else ""),
                                  image=img)
+
+        self.tree.focus_set()
+        self.tree.focus(self.tree.get_children("")[0])
 
     def context(self, e):
         self.ctx = Menu(self, tearoff=False)
