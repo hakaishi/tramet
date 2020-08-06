@@ -6,13 +6,11 @@ from os import listdir
 from os.path import exists, join, basename, getmtime, getatime, isdir, normpath, dirname, abspath, isfile, islink
 from stat import S_ISDIR, S_ISLNK, S_ISREG, filemode
 from datetime import datetime
-from threading import Timer
+from threading import Timer, Thread
 
-from tkinter import Tk, Toplevel, Menu, StringVar, IntVar, BooleanVar,\
-    filedialog, messagebox, simpledialog
-from tkinter import END, X, Y, BOTH, W, E, EW, LEFT, RIGHT, PhotoImage
-from tkinter.ttk import Frame, Button, Label, Combobox, Scrollbar, Entry
-from tkinter.ttk import Treeview, Sizegrip, Scrollbar
+from mttkinter.mtTkinter import *
+from tkinter.ttk import *
+from tkinter import filedialog, messagebox, simpledialog
 
 from paramiko import SSHClient, AutoAddPolicy
 from ftplib import FTP, error_perm
@@ -147,12 +145,55 @@ class MainView(Tk):
     def search(self, event=None):  # todo
         messagebox.showinfo("Not yet", "Work in progress", parent=self)
 
+    def download_worker(self, src, file, isFile=True):
+        if isFile:
+            folder = filedialog.askdirectory(
+                title="Choose download destination")
+            if folder:
+                overwrite = True
+                if exists(join(folder, file)):
+                    overwrite = messagebox.askokcancel(
+                        "Overwrite existing file?",
+                        "A file with the same name already exists. Do you want to override it?",
+                        parent=self)
+                if overwrite:
+                    self.is_busy = True
+
+                    if self.mode == "SFTP":
+                        self.connection.get(src, join(folder, file),
+                                            encoding=self.enc, errors="replace")
+                    else:
+                        with open(join(folder, file), "wb+") as f:
+                            self.connection.retrbinary("RETR %s" % src, f.write)
+        else:
+            folder = filedialog.askdirectory(
+                title="Choose download destination")
+            if folder:
+                overwrite = True
+                if exists(join(folder, file)):
+                    overwrite = messagebox.askokcancel(
+                        "Overwrite existing files?",
+                        "A folder with the same name already exists. Do you want to override all contained files?",
+                        parent=self)
+                if overwrite:
+                    self.is_busy = True
+
+                    # TODO recurse folder
+                    # if self.mode == "SFTP":
+                    #     self.connection.get(src, join(folder, file),
+                    #                         encoding=self.enc, errors="replace")
+                    # else:
+                    #     with open(join(folder, file), "wb+") as f:
+                    #         self.connection.retrbinary("RETR %s" % src, f.write)
+
+        self.is_busy = False
+
     def cwd_dnl(self, event=None):
         self.selection()
 
         item = ""
         if str(event.type) == "ButtonPress":
-            item = self.tree.identify('item',event.x,event.y)
+            item = self.tree.identify('item', event.x, event.y)
         elif event.keysym == "Return":
             sel = self.tree.selection()
             if len(sel) > 0:
@@ -172,12 +213,10 @@ class MainView(Tk):
                 self.connection.chdir(p, encoding=self.enc, errors="replace")
                 self.fill(self.connection)
             else:
-                folder = filedialog.askdirectory(title="Choose download destination")
-                if folder:
-                    self.is_busy = True
-                    self.connection.get("/".join((self.connection.getcwd(), item_name)), join(folder, item_name),
-                                        encoding=self.enc, errors="replace")
-                    self.is_busy = False
+                Thread(target=self.download_worker,
+                       args=["/".join((self.connection.getcwd(), item_name)),
+                             item_name],
+                       daemon=True).start()
         elif self.mode == "FTP" and self.connected:
             fd = False
             if item_name == ".." or self.tree.item(item, "values")[0][0] != "-":
@@ -190,12 +229,9 @@ class MainView(Tk):
                 except Exception:
                     pass
             if not fd:
-                folder = filedialog.askdirectory(title="Choose download destination")
-                if folder:
-                    self.is_busy = True
-                    with open(join(folder, item_name), "wb+") as f:
-                        self.connection.retrbinary("RETR %s" % item_name, f.write)
-                    self.is_busy = False
+                Thread(target=self.download_worker,
+                       args=[item_name, item_name],
+                       daemon=True).start()
 
     def fill(self, conn):
         self.tree.delete(*self.tree.get_children())
