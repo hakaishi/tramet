@@ -2,7 +2,18 @@
 # -*- encoding=utf8 -*-
 
 from tkinter import Toplevel, Listbox, END, StringVar, IntVar, BOTH, X, Y, EW, W, RIGHT
-from tkinter.ttk import Combobox, Label, Frame, Entry, Spinbox, Button, Scrollbar, Sizegrip
+from tkinter.ttk import Combobox, Label, Frame, Entry, Button, Scrollbar, Sizegrip
+try:
+    from tkinter.ttk import Spinbox
+except ImportError:
+    class Spinbox(Entry):
+
+        def __init__(self, master=None, **kw):
+            Entry.__init__(self, master, "ttk::spinbox", **kw)
+
+        def set(self, value):
+            self.tk.call(self._w, "set", value)
+
 from json import dump, load
 
 
