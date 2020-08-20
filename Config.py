@@ -52,8 +52,6 @@ class Config(Toplevel):
 
         btn_frame = Frame(self)
 
-        # Button(btn_frame, text="Delete", command=self.delete).grid(row=0, column=0, pady=(10, 30))
-        # Button(btn_frame, text="Add/Update", command=self.add).grid(row=0, column=1, pady=(10, 30))
         Button(btn_frame, text="Save", command=self.save).grid(row=1, column=0, pady=10)
         Button(btn_frame, text="Cancel", command=self.destroy).grid(row=1, column=1, pady=10)
 
@@ -62,17 +60,6 @@ class Config(Toplevel):
         btn_frame.grid_columnconfigure(1, weight=1)
 
         Sizegrip(self).pack(side=RIGHT)
-
-    # def selection_changed(self, event=None):
-    #     if len(self.list.curselection()) > 0:
-    #         self.profile.set(self.list.get(self.list.curselection()[0]))
-    #         self.host.set(self.conf[self.profile.get()]["host"])
-    #         self.port.set(self.conf[self.profile.get()]["port"])
-    #         self.user.set(self.conf[self.profile.get()]["user"])
-    #         self.passwd.set(self.conf[self.profile.get()]["password"])
-    #         self.path.set(self.conf[self.profile.get()]["path"])
-    #         self.encoding.set(self.conf[self.profile.get()]["encoding"])
-    #         self.mode.set(self.conf[self.profile.get()]["mode"])
 
     def on_double_click(self, e):
         item = self.list.curselection()
