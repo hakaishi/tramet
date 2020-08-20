@@ -34,6 +34,8 @@ class MainView(Tk):
         self.geometry("500x400")
         self.minsize(500, 400)
 
+        self.wm_title("Tramet")
+
         self.conf = Config.load_file()
         self.q = Queue()
 
@@ -59,12 +61,12 @@ class MainView(Tk):
         frame = Frame(self)
 
         Label(frame, text="profile:").grid(row=0, column=0, sticky=W)
-        self.profileCB = Combobox(frame, values=list(self.conf.keys()))
+        self.profileCB = Combobox(frame, state="readonly", values=list(self.conf.keys()))
         self.profileCB.bind("<<ComboboxSelected>>", self.set_profile)
         self.profileCB.grid(row=0, column=1, sticky=EW, columnspan=3)
 
         Label(frame, text="host:").grid(row=1, column=0, sticky=W)
-        self.connectionCB = Combobox(frame, values=list(
+        self.connectionCB = Combobox(frame, state="disabled", values=list(
             set(map(lambda x: x[1]["host"], self.conf.items()))
         ))
         self.connectionCB.grid(row=1, column=1, sticky=EW, columnspan=1)
@@ -74,13 +76,15 @@ class MainView(Tk):
         self.modeL.grid(row=1, column=3, sticky=W)
 
         Label(frame, text="name:").grid(row=2, column=0, sticky=W)
-        self.nameE = Entry(frame)
+        self.name = StringVar()
+        self.nameE = Entry(frame, state="disabled", textvariable=self.name)
         self.nameE.grid(row=2, column=1, sticky=EW, columnspan=3)
 
         Label(frame, text="path:").grid(row=3, column=0, sticky=W)
         self.path = StringVar()
         self.pathE = Entry(frame, textvariable=self.path)
         self.pathE.grid(row=3, column=1, sticky=EW, columnspan=3)
+        self.pathE.bind('<Control-KeyRelease-a>', self.select_all)
 
         self.connect_btn = Button(frame, text="load", command=self.connect)
         self.connect_btn.grid(row=4, column=0, columnspan=4, sticky=EW, pady=10)
@@ -127,14 +131,19 @@ class MainView(Tk):
             self.tree.focus_set()
             self.tree.focus(self.tree.get_children('')[0])
 
+    def select_all(self, e):
+        # select text
+        e.widget.select_range(0, END)
+        # move cursor to the end
+        e.widget.icursor(END)
+
     def set_profile(self, event=None):
         p = self.profileCB.get()
         if p:
             prof = self.conf[p]
             self.connectionCB.set(prof["host"])
             self.port = prof["port"]
-            self.nameE.delete(0, END)
-            self.nameE.insert(END, prof["user"])
+            self.name.set(prof["user"])
             self.pathE.delete(0, END)
             self.pathE.insert(END, prof["path"])
             self.enc = prof["encoding"]

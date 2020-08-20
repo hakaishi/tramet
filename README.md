@@ -9,7 +9,6 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 ### TODO:
 * Download multiple files/folders (using a queue)
 * File search
-* Rework user management
 * Show progress when down-/uploading
 * translations ?
 
