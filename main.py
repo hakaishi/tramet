@@ -48,6 +48,7 @@ class MainView(Tk):
         self.connected = False
         self.keep_alive_timer_running = False
         self.is_busy = False
+        self.found = -1
         
         self.menubar = Menu(self)
         self.configure(menu=self.menubar)
@@ -56,7 +57,7 @@ class MainView(Tk):
         self.menubar.add_cascade(label="File", menu=self.filemenu)
         self.filemenu.add_command(label="Profiles", command=self.open_profiles)
         self.filemenu.add_command(label="Exit", command=self.destroy)
-        self.menubar.add_command(label="Search", command=self.search)
+        self.menubar.add_command(label="Search", command=self.find)
         
         frame = Frame(self)
 
@@ -111,9 +112,20 @@ class MainView(Tk):
         self.tree.pack(fill=BOTH, expand=True)
         self.tree.bind("<Double-1>", self.cwd_dnl)
         self.tree.bind("<Return>", self.cwd_dnl)
+        self.tree.bind("<Right>", self.cwd_dnl)
+        self.tree.bind("<Left>", self.cwd_dnl)
+        self.tree.bind("<BackSpace>", self.cwd_dnl)
         self.tree.bind("<Button-1>", self.selection)
         self.tree.bind('<FocusIn>', self.on_get_focus)
         self.tree.bind("<Button-3>", self.context)
+
+        self._toSearch = StringVar()
+        self.searchEntry = Entry(self.tree, textvariable=self._toSearch)
+        self.tree.bind("<KeyPress>", self._keyOnTree)
+        self._toSearch.trace_variable("w", self._search)
+        self.searchEntry.bind("<Return>", self._search)
+        self.searchEntry.bind("<Escape>", self._hideEntry)
+        self.searchEntry.bind("<FocusOut>", self._hideEntry)
 
         scrollbar.config(command=self.tree.yview)
 
@@ -124,6 +136,38 @@ class MainView(Tk):
         Sizegrip(self).pack(side=RIGHT)
 
         self.mainloop()
+
+    def _search(self, *args):
+        pattern = self._toSearch.get()
+        # avoid search on empty string
+        if len(pattern) > 0:
+            self.search(pattern)
+
+    def search(self, pattern, item=''):
+        children = self.tree.get_children("")
+        for i, child in enumerate(children):
+            text = self.tree.item(child, 'text')
+            if text == ".." or i <= self.found:
+                continue
+            if text.lower().startswith(pattern.lower()):
+                self.found = i
+                self.tree.selection_set(child)
+                self.tree.see(child)
+                return True
+            if i == len(children)-1:
+                self.found = -1
+
+    def _keyOnTree(self, event):
+        if len(event.char) == 1 and event.keysym not in ["Escape", "BackSpace", "Tab"]:
+            self.found = -1
+            self.searchEntry.place(relx=1, anchor=NE)
+            self.searchEntry.insert(END, event.char)
+            self.searchEntry.focus_set()
+
+    def _hideEntry(self, event):
+        self.searchEntry.delete(0, END)
+        self.searchEntry.place_forget()
+        self.tree.focus_set()
 
     def on_get_focus(self, event=None):
         if len(self.tree.selection()) == 0 and len(self.tree.get_children("")) > 0:
@@ -159,7 +203,7 @@ class MainView(Tk):
             self.ctx.destroy()
             self.ctx = None
 
-    def search(self, event=None):  # todo
+    def find(self, event=None):  # todo
         messagebox.showinfo("Not yet", "Work in progress", parent=self)
 
     def download_worker(self, src, file, ts, isFile=True):
@@ -325,10 +369,14 @@ class MainView(Tk):
         item = ""
         if str(event.type) == "ButtonPress":
             item = self.tree.identify('item', event.x, event.y)
-        elif event.keysym == "Return":
+        if event.keysym in ["Return", "Right"]:
             sel = self.tree.selection()
             if len(sel) > 0:
                 item = self.tree.selection()[0]
+        elif event.keysym in ["BackSpace", "Left"]:
+            item = self.tree.get_children("")[0]
+            if self.path.get() == "/":
+                return
 
         p = ""
         item_name = self.tree.item(item, "text")
@@ -378,7 +426,7 @@ class MainView(Tk):
                     for size, buf, attrs in sorted(
                             dirh.readdir(),
                             key=(lambda f: (S_ISREG(f[2].permissions) != 0, f[1]))):
-                        if buf.decode(self.enc) == ".":
+                        if buf.decode(self.enc) == "." or (self.path.get() == "/" and buf.decode(self.enc) == ".."):
                             continue
                         img = ""
                         if S_ISDIR(attrs.permissions) != 0:

@@ -40,7 +40,7 @@ class Config(Toplevel):
         # self.list.bind("<<ListboxSelect>>", self.selection_changed)
         self.list.bind("<Double-Button>", self.on_double_click)
         self.list.bind("<Return>", self.on_double_click)
-        self.list.bind("<Button-3>", self.delete)
+        self.list.bind("<Button-3>", self.context)
         self.list.bind("<Delete>", self.delete)
         self.list.bind("<FocusIn>", self.focus_in_)
         self.list.bind("<Up>", self.move_up)
@@ -61,8 +61,25 @@ class Config(Toplevel):
 
         Sizegrip(self).pack(side=RIGHT)
 
-    def on_double_click(self, e):
-        item = self.list.curselection()
+    def context(self, event=None):
+        print(event.x, event.y)
+        print(self.list.nearest(event.y))
+        popup = Menu(self, tearoff=False)
+        popup.add_command(label="create", command=lambda: self.on_double_click(None))
+        if len(self.list.curselection()) > 0 or self.list.nearest(event.y) != -1:
+            sel = self.list.curselection()
+            if len(sel) == 0:
+                sel = [self.list.nearest(event.y)]
+            popup.add_command(label="edit", command=lambda: self.on_double_click(event, idx=sel[0]))
+            popup.add_command(label="delete", command=lambda: self.delete(event, self.list.nearest(event.y)))
+        popup.tk_popup(event.x_root, event.y_root)
+
+    def on_double_click(self, e, idx=-1):
+        item = []
+        if e:
+            item = self.list.curselection()
+        if len(item) == 0 and idx > -1:
+            item = [idx, ]
         Editor(self, self.list.get(item[0]) if len(item) > 0 else None)
 
     def move_up(self, e):
@@ -118,10 +135,12 @@ class Config(Toplevel):
 
         self.destroy()
 
-    def delete(self, e):
+    def delete(self, e=None, idx=-1):
         # if self.profile.get():
         #     self.conf.pop(self.profile.get(), None)
         sel = self.list.curselection()
+        if len(sel) == 0 and idx >= 0:
+            sel = [idx, ]
         if len(sel) > 0:
             okc = messagebox.askokcancel("Delete Profile", "Do you really want to delete %s?" % self.list.get(sel[0]), parent=self)
             if okc:
@@ -216,6 +235,22 @@ class Editor(Toplevel):
         self.bind("<Escape>", lambda e: self.destroy())
 
     def ok(self):
+        if not self.profile.get().strip() or\
+            not self.host.get().strip() or\
+            not self.port.get() or\
+            not self.user.get().strip() or\
+            not self.path.get().strip() or\
+            not self.encoding.get().strip() or\
+                not self.mode.get().strip():
+
+            messagebox.showerror("Input data incomplete.", "Please fill all fields.", parent=self)
+            return
+
+        if self.profile.get() in self.root.conf:
+            yesno = messagebox.askyesno("Updating Profile", "Do you really want to update %s?" % self.profile.get(), parent=self)
+            if not yesno:
+                return
+
         self.root.conf[self.profile.get()] = {
             "host": self.host.get(),
             "port": self.port.get(),
