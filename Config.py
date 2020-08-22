@@ -24,7 +24,7 @@ class Config(Toplevel):
         super().__init__(root)
 
         self.root = root
-        self.conf = self.load_file() or {}
+        self.conf = self.load_file() or {"profiles": {}}
 
         self.geometry("350x300")
         self.geometry("+%d+%d" % (root.winfo_x()+50, root.winfo_y()+25))
@@ -45,7 +45,7 @@ class Config(Toplevel):
         self.list.bind("<FocusIn>", self.focus_in_)
         self.list.bind("<Up>", self.move_up)
         self.list.bind("<Down>", self.move_dwn)
-        for p in self.conf.keys():
+        for p in self.conf["profiles"].keys():
             self.list.insert(END, p)
 
         list_frame.pack(fill=BOTH, expand=True)
@@ -62,8 +62,6 @@ class Config(Toplevel):
         Sizegrip(self).pack(side=RIGHT)
 
     def context(self, event=None):
-        print(event.x, event.y)
-        print(self.list.nearest(event.y))
         popup = Menu(self, tearoff=False)
         popup.add_command(label="create", command=lambda: self.on_double_click(None))
         if len(self.list.curselection()) > 0 or self.list.nearest(event.y) != -1:
@@ -117,7 +115,7 @@ class Config(Toplevel):
                 return load(file)
         except Exception as e:
             print(e)
-            return {}
+            return {"profiles": {}}
 
     @classmethod
     def save_file(cls, obj):
@@ -130,7 +128,10 @@ class Config(Toplevel):
     def save(self):
         self.save_file(self.conf)
         self.root.conf = self.conf
-        self.root.profileCB["values"] = list(self.conf.keys())
+        profs = list(self.conf["profiles"].keys())
+        self.root.profileCB["values"] = profs
+        if self.root.profileCB.get() == "please create a profile first" and len(profs) > 0:
+            self.root.profileCB.current(0)
         self.root.set_profile()
 
         self.destroy()
@@ -144,7 +145,7 @@ class Config(Toplevel):
         if len(sel) > 0:
             okc = messagebox.askokcancel("Delete Profile", "Do you really want to delete %s?" % self.list.get(sel[0]), parent=self)
             if okc:
-                del self.conf[self.list.get(sel[0])]
+                del self.conf["profiles"][self.list.get(sel[0])]
                 self.list.delete(sel[0])
 
 
@@ -170,7 +171,7 @@ class Editor(Toplevel):
         Label(frame, text="Port:").grid(row=2, column=0, sticky=W)
         self.port = IntVar()
         self.port.set(22)
-        port_spin = Spinbox(frame, textvariable=self.port)
+        port_spin = Spinbox(frame, from_=0, to=99999, textvariable=self.port)
         port_spin.grid(row=2, column=1, sticky=EW)
 
         Label(frame, text="User name:").grid(row=3, column=0, sticky=W)
@@ -185,7 +186,8 @@ class Editor(Toplevel):
 
         Label(frame, text="Encoding:").grid(row=5, column=0, sticky=W)
         enc = ["utf8"]
-        ext = list(map(lambda x: x[1]["encoding"], self.root.conf.items()))
+        ext = list(map(lambda x: x[1]["encoding"],
+                       self.root.conf["profiles"].items()))
         if len(ext) > 0:
             enc.extend(ext)
         self.encoding = Combobox(frame, values=list(set(enc)))
@@ -222,7 +224,7 @@ class Editor(Toplevel):
         Sizegrip(self).pack(side=RIGHT)
 
         if item:
-            data = self.root.conf[item]
+            data = self.root.conf["profiles"][item]
             self.profile.set(item)
             self.host.set(data.get("host"))
             self.port.set(data.get("port"))
@@ -246,12 +248,12 @@ class Editor(Toplevel):
             messagebox.showerror("Input data incomplete.", "Please fill all fields.", parent=self)
             return
 
-        if self.profile.get() in self.root.conf:
+        if self.profile.get() in self.root.conf["profiles"]:
             yesno = messagebox.askyesno("Updating Profile", "Do you really want to update %s?" % self.profile.get(), parent=self)
             if not yesno:
                 return
 
-        self.root.conf[self.profile.get()] = {
+        self.root.conf["profiles"][self.profile.get()] = {
             "host": self.host.get(),
             "port": self.port.get(),
             "user": self.user.get(),

@@ -62,13 +62,15 @@ class MainView(Tk):
         frame = Frame(self)
 
         Label(frame, text="profile:").grid(row=0, column=0, sticky=W)
-        self.profileCB = Combobox(frame, state="readonly", values=list(self.conf.keys()))
+        self.profileCB = Combobox(frame, state="readonly",
+                                  values=list(self.conf["profiles"].keys()))
         self.profileCB.bind("<<ComboboxSelected>>", self.set_profile)
         self.profileCB.grid(row=0, column=1, sticky=EW, columnspan=3)
+        self.profileCB.set("please select a profile" if len(self.conf["profiles"].keys()) > 0 else "please create a profile first")
 
         Label(frame, text="host:").grid(row=1, column=0, sticky=W)
         self.connectionCB = Combobox(frame, state="disabled", values=list(
-            set(map(lambda x: x[1]["host"], self.conf.items()))
+            set(map(lambda x: x[1]["host"], self.conf["profiles"].items()))
         ))
         self.connectionCB.grid(row=1, column=1, sticky=EW, columnspan=1)
 
@@ -86,8 +88,12 @@ class MainView(Tk):
         self.pathE = Entry(frame, textvariable=self.path)
         self.pathE.grid(row=3, column=1, sticky=EW, columnspan=3)
         self.pathE.bind('<Control-KeyRelease-a>', self.select_all)
+        self.pathE.bind('<Return>', lambda e: self.cwd_dnl(e, ignore_item=True))
+        self.pathE.bind("<FocusIn>", lambda e: self.focus())
+        self.pathE.bind("<FocusIn>", lambda e: self.grab_set())
+        self.pathE.bind("<FocusOut>", lambda e: self.pathE.grab_release())
 
-        self.connect_btn = Button(frame, text="load", command=self.connect)
+        self.connect_btn = Button(frame, text="Connect", command=self.connect)
         self.connect_btn.grid(row=4, column=0, columnspan=4, sticky=EW, pady=10)
 
         frame.pack(fill=X, expand=True)
@@ -118,6 +124,7 @@ class MainView(Tk):
         self.tree.bind("<Button-1>", self.selection)
         self.tree.bind('<FocusIn>', self.on_get_focus)
         self.tree.bind("<Button-3>", self.context)
+        self.bind_all("<F5>", lambda e: self.fill(self.connection))
 
         self._toSearch = StringVar()
         self.searchEntry = Entry(self.tree, textvariable=self._toSearch)
@@ -134,6 +141,16 @@ class MainView(Tk):
         self.ctx = None
         
         Sizegrip(self).pack(side=RIGHT)
+
+        if len(self.conf["profiles"].keys()) > 0:
+            c = self.conf.get("current_profile", "")
+            if not c:
+                self.profileCB.current(0)
+            else:
+                self.profileCB.current(list(self.conf["profiles"].keys()).index(c))
+            self.set_profile()
+
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         self.mainloop()
 
@@ -183,8 +200,8 @@ class MainView(Tk):
 
     def set_profile(self, event=None):
         p = self.profileCB.get()
-        if p:
-            prof = self.conf[p]
+        if p and p in self.conf["profiles"]:
+            prof = self.conf["profiles"][p]
             self.connectionCB.set(prof["host"])
             self.port = prof["port"]
             self.name.set(prof["user"])
@@ -363,36 +380,42 @@ class MainView(Tk):
 
         self.is_busy = False
 
-    def cwd_dnl(self, event=None):
+    def cwd_dnl(self, event=None, ignore_item=False):
+        if not self.connected:
+            messagebox.showinfo("Connection Lost", "Please reconnect first.")
+
         self.selection()
 
         item = ""
-        if str(event.type) == "ButtonPress":
-            item = self.tree.identify('item', event.x, event.y)
-        if event.keysym in ["Return", "Right"]:
-            sel = self.tree.selection()
-            if len(sel) > 0:
-                item = self.tree.selection()[0]
-        elif event.keysym in ["BackSpace", "Left"]:
-            item = self.tree.get_children("")[0]
-            if self.path.get() == "/":
-                return
-
         p = ""
-        item_name = self.tree.item(item, "text")
-        if item_name == "..":
-            p += "/".join(self.path.get().split("/")[:-1]) or "/"
+        item_name = ""
+        if not ignore_item:
+            if str(event.type) == "ButtonPress":
+                item = self.tree.identify('item', event.x, event.y)
+            if event.keysym in ["Return", "Right"]:
+                sel = self.tree.selection()
+                if len(sel) > 0:
+                    item = self.tree.selection()[0]
+            elif event.keysym in ["BackSpace", "Left"]:
+                item = self.tree.get_children("")[0]
+                if self.path.get() == "/":
+                    return
+
+            item_name = self.tree.item(item, "text")
+            if item_name == "..":
+                p += "/".join(self.path.get().split("/")[:-1]) or "/"
+            else:
+                p += self.path.get()
+                p = "/".join(((p if p != "/" else ""), item_name))
         else:
-            p += self.path.get()
-            p = "/".join(((p if p != "/" else ""), item_name))
+            p = self.path.get()
         if self.mode == "SFTP" and self.connected:
             inf = self.connection.stat(p)
             if S_ISDIR(inf.permissions) != 0:
-                self.pathE.delete(0, END)
-                self.pathE.insert(END, p)
+                self.path.set(p)
                 self.fill(self.connection)
             else:
-                if not self.is_busy:
+                if not self.is_busy and item_name:
                     Thread(target=self.download_worker,
                            args=["/".join((self.path.get(), item_name)),
                                  item_name, (inf.atime, inf.mtime)],
@@ -401,11 +424,10 @@ class MainView(Tk):
                     messagebox.showinfo("busy", "A download is already running. Try again later.")
         elif self.mode == "FTP" and self.connected:
             fd = False
-            if item_name == ".." or self.tree.item(item, "values")[0][0] != "-":
+            if item_name == ".." or not item or self.tree.item(item, "values")[0][0] != "-":
                 try:
                     self.connection.cwd(p)
-                    self.pathE.delete(0, END)
-                    self.pathE.insert(END, p)
+                    self.path.set(p)
                     self.fill(self.connection)
                     fd = True
                 except Exception:
@@ -420,83 +442,87 @@ class MainView(Tk):
 
     def fill(self, conn):
         self.tree.delete(*self.tree.get_children())
-        if self.mode == "SFTP":
-            try:
-                with self.connection.opendir(self.path.get()) as dirh:
-                    for size, buf, attrs in sorted(
-                            dirh.readdir(),
-                            key=(lambda f: (S_ISREG(f[2].permissions) != 0, f[1]))):
-                        if buf.decode(self.enc) == "." or (self.path.get() == "/" and buf.decode(self.enc) == ".."):
-                            continue
-                        img = ""
-                        if S_ISDIR(attrs.permissions) != 0:
-                            img = self.d_img
-                        elif S_ISREG(attrs.permissions) != 0:
-                            img = self.f_img
-                        elif S_ISLNK(attrs.permissions) != 0:
-                            img = self.l_img
-                        self.tree.insert(
-                            "", END, text=buf.decode(self.enc),
-                            values=(
-                                filemode(attrs.permissions),
-                                datetime.fromtimestamp(attrs.mtime).strftime(
-                                    "%Y-%m-%d %H:%M:%S"
+        if(conn):
+            if self.mode == "SFTP":
+                try:
+                    with self.connection.opendir(self.path.get()) as dirh:
+                        for size, buf, attrs in sorted(
+                                dirh.readdir(),
+                                key=(lambda f: (S_ISREG(f[2].permissions) != 0, f[1]))):
+                            if buf.decode(self.enc) == "." or (self.path.get() == "/" and buf.decode(self.enc) == ".."):
+                                continue
+                            img = ""
+                            if S_ISDIR(attrs.permissions) != 0:
+                                img = self.d_img
+                            elif S_ISREG(attrs.permissions) != 0:
+                                img = self.f_img
+                            elif S_ISLNK(attrs.permissions) != 0:
+                                img = self.l_img
+                            self.tree.insert(
+                                "", END, text=buf.decode(self.enc),
+                                values=(
+                                    filemode(attrs.permissions),
+                                    datetime.fromtimestamp(attrs.mtime).strftime(
+                                        "%Y-%m-%d %H:%M:%S"
+                                    ),
+                                    attrs.filesize, attrs.permissions, attrs.mtime
                                 ),
-                                attrs.filesize, attrs.permissions, attrs.mtime
-                            ),
-                            image=img
-                        )
-            except PermissionError:
-                messagebox.showwarning(
-                    "Permission Denied",
-                    "You don't have permission to see the content of this folder."
-                )
+                                image=img
+                            )
+                except PermissionError:
+                    messagebox.showwarning(
+                        "Permission Denied",
+                        "You don't have permission to see the content of this folder."
+                    )
 
-        else:  # FTP
-            if conn.pwd() != "/":
-                self.tree.insert("", END, text="..")
+            else:  # FTP
+                if conn.pwd() != "/":
+                    self.tree.insert("", END, text="..")
 
-            dir_res = []
-            conn.dir(dir_res.append)
-            files = conn.nlst()
-            data = {}
-            for file in files:
-                for fi in dir_res:
-                    if file in fi:
-                        data[file] = fi[:-len(file)]
+                dir_res = []
+                conn.dir(dir_res.append)
+                files = conn.nlst()
+                data = {}
+                for file in files:
+                    for fi in dir_res:
+                        if file in fi:
+                            data[file] = fi[:-len(file)]
 
-            for p in sorted(data.items(), key=lambda x: (x[1][0] == "-", x[0])):
-                d = p[1].split()
-                dt = None
-                if d[0][0] != "d":
-                    try:
-                        dt = datetime.strptime(
-                            conn.voidcmd("MDTM %s" % p[0]).split()[-1],
-                            "%Y%m%d%H%M%S"
-                        )
-                    except Exception as e:
-                        print(e)
-                img = ""
-                if d[0][0] == "d":
-                    img = self.d_img
-                elif d[0][0] == "-":
-                    img = self.f_img
-                elif d[0][0] == "l":
-                    img = self.l_img
-                self.tree.insert(
-                    "", END, text=p[0],
-                    values=(
-                        d[0],
-                        dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "",
-                        d[4],
-                        d[0][0] == "d",
-                        dt.timestamp() if dt else ""
-                    ),
-                    image=img
-                )
+                for p in sorted(data.items(), key=lambda x: (x[1][0] == "-", x[0])):
+                    d = p[1].split()
+                    dt = None
+                    if d[0][0] != "d":
+                        try:
+                            dt = datetime.strptime(
+                                conn.voidcmd("MDTM %s" % p[0]).split()[-1],
+                                "%Y%m%d%H%M%S"
+                            )
+                        except Exception as e:
+                            print(e)
+                    img = ""
+                    if d[0][0] == "d":
+                        img = self.d_img
+                    elif d[0][0] == "-":
+                        img = self.f_img
+                    elif d[0][0] == "l":
+                        img = self.l_img
+                    self.tree.insert(
+                        "", END, text=p[0],
+                        values=(
+                            d[0],
+                            dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "",
+                            d[4],
+                            d[0][0] == "d",
+                            dt.timestamp() if dt else ""
+                        ),
+                        image=img
+                    )
 
-        self.tree.focus_set()
-        self.tree.focus(self.tree.get_children("")[0])
+            self.tree.focus_set()
+            if len(self.tree.get_children("")) > 0:
+                itm = self.tree.get_children("")[0]
+                self.tree.see(itm)
+                self.tree.focus(itm)
 
     def context(self, e):
         self.ctx = Menu(self, tearoff=False)
@@ -942,6 +968,12 @@ class MainView(Tk):
     def connect(self):
         connection = None
 
+        if self.profileCB.get() == "please select a profile":
+            text = "Please select a profile to connect to."
+            if len(self.profileCB["values"]) == 0:
+                text = "Please create a profile first."
+            messagebox.showinfo("No connection data", text)
+
         if self.mode == "SFTP":
             import os
             from ssh2.session import LIBSSH2_HOSTKEY_HASH_SHA1, \
@@ -1006,6 +1038,11 @@ class MainView(Tk):
         self.connect_btn["text"] = "Connect" if not self.connected else "Disconnect"
 
         return connection
+
+    def destroy(self):
+        self.conf["current_profile"] = self.profileCB.get()
+        Config.save_file(self.conf)
+        super().destroy()
 
 
 if __name__ == "__main__":
