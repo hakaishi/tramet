@@ -8,6 +8,7 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 
 ### TODO:
 * Download multiple files/folders (using a queue)
+* Upload using separate thread
 * File search
 * Show progress when down-/uploading
 * translations ?
@@ -18,4 +19,4 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 3. Display of user- and group names when using FTP depends on the FTP server and its settings.
 4. Some FTP servers don't have a way to set the access/modification date of files after upload
 5. Symbolic links are not supported.
-6. There is some trouble with file uploads. Timestamps are not preserved yet. The issue is currently under research
+6. There is some trouble with ssh file uploads. Timestamps are not preserved yet. The issue is currently under research

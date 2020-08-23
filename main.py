@@ -379,6 +379,7 @@ class MainView(Tk):
                             recurse(join(src, inf[0]), inf[1])
 
         self.is_busy = False
+        messagebox.showinfo("DONE", "Download done!", parent=self)
 
     def cwd_dnl(self, event=None, ignore_item=False):
         if not self.connected:
@@ -786,6 +787,7 @@ class MainView(Tk):
                         print(e)
         self.fill(self.connection)
         self.is_busy = False
+        messagebox.showinfo("DONE", "Upload done!", parent=self)
 
     def upload_folder(self):
         folder = filedialog.askdirectory(
@@ -934,6 +936,7 @@ class MainView(Tk):
 
             self.fill(self.connection)
             self.is_busy = False
+            messagebox.showinfo("DONE", "Upload done!", parent=self)
 
     def keep_alive(self):
         if not self.keep_alive_timer_running:
