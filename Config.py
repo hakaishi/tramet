@@ -204,7 +204,7 @@ class Editor(Toplevel):
 
         Label(frame, text="Path:").grid(row=7, column=0, sticky=W)
         self.path = StringVar()
-        self.path.set("/")
+        # self.path.set("/")
         path_edit = Entry(frame, textvariable=self.path)
         path_edit.grid(row=7, column=1, sticky=EW)
 
@@ -244,7 +244,6 @@ class Editor(Toplevel):
             not self.host.get().strip() or\
             not self.port.get() or\
             not self.user.get().strip() or\
-            not self.path.get().strip() or\
             not self.encoding.get().strip() or\
                 not self.mode.get().strip():
 

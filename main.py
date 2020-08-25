@@ -18,6 +18,7 @@ from socket import socket, AF_INET, SOCK_STREAM
 from ssh2.session import Session
 from ssh2.sftp import *
 from ssh2.sftp_handle import SFTPAttributes
+from ssh2.exceptions import *
 from ftplib import FTP, error_perm
 
 from Config import Config
@@ -411,6 +412,14 @@ class MainView(Tk):
         else:
             p = self.path.get()
         if self.mode == "SFTP" and self.connected:
+            if not p:
+                channel = self.connection.session.open_session()
+                channel.execute('pwd')
+                channel.wait_eof()
+                channel.close()
+                channel.wait_closed()
+                p = channel.read()[1].decode(self.enc).strip()
+                self.path.set(p)
             inf = self.connection.stat(p)
             if S_ISDIR(inf.permissions) != 0:
                 self.path.set(p)
@@ -446,6 +455,13 @@ class MainView(Tk):
         if(conn):
             if self.mode == "SFTP":
                 try:
+                    if not self.path.get():
+                        channel = self.connection.session.open_session()
+                        channel.execute('pwd')
+                        channel.wait_eof()
+                        channel.close()
+                        channel.wait_closed()
+                        self.path.set(channel.read()[1].decode(self.enc).strip())
                     with self.connection.opendir(self.path.get()) as dirh:
                         for size, buf, attrs in sorted(
                                 dirh.readdir(),
@@ -470,7 +486,7 @@ class MainView(Tk):
                                 ),
                                 image=img
                             )
-                except PermissionError:
+                except (PermissionError, SFTPProtocolError):
                     messagebox.showwarning(
                         "Permission Denied",
                         "You don't have permission to see the content of this folder."
