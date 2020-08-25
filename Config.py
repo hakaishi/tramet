@@ -112,7 +112,10 @@ class Config(Toplevel):
     def load_file():
         try:
             with open("config", "r+") as file:
-                return load(file)
+                d = load(file)
+                if "profiles" not in d:
+                    d = {"profiles": {}}
+                return d
         except Exception as e:
             print(e)
             return {"profiles": {}}

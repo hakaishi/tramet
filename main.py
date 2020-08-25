@@ -986,9 +986,10 @@ class MainView(Tk):
             if not self.connected:
                 try:
                     sock = socket(AF_INET, SOCK_STREAM)
-                    sock.connect((self.connectionCB.get(), self.port))
                     sock.settimeout(3)
+                    sock.connect((self.connectionCB.get(), self.port))
                     cli = Session()
+                    sock.settimeout(3)
                     cli.handshake(sock)
 
                     cli.userauth_password(self.nameE.get(), self.password)
@@ -996,7 +997,7 @@ class MainView(Tk):
 
                     connection = sftp
                 except Exception as e:
-                    print(e)
+                    messagebox.showerror("Connection Error", str(e))
                     return
 
             else:
