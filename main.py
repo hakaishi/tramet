@@ -345,11 +345,12 @@ class MainView(Tk):
                                 dinfo = []
                                 self.connection.dir(path, dinfo.append)
                                 dfiles = self.connection.nlst(path)
-                                for f_ in sorted(dfiles, key=len):
+                                for f_ in sorted(dfiles, key=lambda y: y.lower()):
                                     fin = basename(f_)
-                                    for ifo in sorted(dinfo, key=len):
+                                    for ifo in dinfo:
                                         if fin == ifo[-len(fin):]:
                                             data[fin] = ifo[:-len(fin)]
+                                            dinfo.remove(ifo)
                                             break
                                 for x in data.items():
                                     recurse(join(path, x[0]), x[1])
@@ -370,11 +371,12 @@ class MainView(Tk):
                         info = []
                         self.connection.dir(src, info.append)
                         files = self.connection.nlst(src)
-                        for f in sorted(files, key=len):
+                        for f in sorted(files, key=lambda y: y.lower()):
                             fn = basename(f)
-                            for i in sorted(info, key=len):
+                            for i in info:
                                 if fn == i[-len(fn):]:
                                     dat[fn] = i[:-len(fn)]
+                                    info.remove(fn)
                                     break
                         for inf in dat.items():
                             recurse(join(src, inf[0]), inf[1])
@@ -452,7 +454,7 @@ class MainView(Tk):
 
     def fill(self, conn):
         self.tree.delete(*self.tree.get_children())
-        if(conn):
+        if conn:
             if self.mode == "SFTP":
                 try:
                     if not self.path.get():
@@ -495,6 +497,8 @@ class MainView(Tk):
             else:  # FTP
                 if conn.pwd() != "/":
                     self.tree.insert("", END, text="..")
+                if not self.path.get():
+                    self.path.set(conn.pwd())
 
                 dir_res = []
                 conn.dir(dir_res.append)
@@ -1002,16 +1006,20 @@ class MainView(Tk):
             if not self.connected:
                 try:
                     sock = socket(AF_INET, SOCK_STREAM)
-                    sock.settimeout(3)
+                    sock.settimeout(10)
                     sock.connect((self.connectionCB.get(), self.port))
                     cli = Session()
-                    sock.settimeout(3)
+                    cli.set_timeout(15000)
                     cli.handshake(sock)
 
                     cli.userauth_password(self.nameE.get(), self.password)
                     sftp = cli.sftp_init()
 
+                    cli.set_timeout(0)
+
                     connection = sftp
+                except Timeout:
+                    messagebox.showerror("Connection Error", "Connection timeout on login.")
                 except Exception as e:
                     messagebox.showerror("Connection Error", str(e))
                     return
