@@ -7,8 +7,7 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 * ssh2-python
 
 ### TODO:
-* Download multiple files/folders (using a queue)
-* Upload using separate thread
+* remember destination path for up- and downloads
 * File search
 * Show progress when down-/uploading
 * translations ?
