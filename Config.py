@@ -28,6 +28,9 @@ class Config(Toplevel):
         self.root = root
         self.conf = self.load_file() or {"profiles": {}}
 
+        self.editor_open = False
+        self.editor_window = None
+
         self.geometry("350x300")
         self.geometry("+%d+%d" % (root.winfo_x()+50, root.winfo_y()+25))
         self.minsize(350, 300)
@@ -80,7 +83,13 @@ class Config(Toplevel):
             item = self.list.curselection()
         if len(item) == 0 and idx > -1:
             item = [idx, ]
-        Editor(self, self.list.get(item[0]) if len(item) > 0 else None)
+
+        if not self.editor_open:
+            self.editor_open = True
+            self.editor_window = Editor(self, self.list.get(item[0]) if len(item) > 0 else None)
+        else:
+            self.editor_window.tkraise(self)
+            self.editor_window.focus()
 
     def move_up(self, e):
         idx = self.list.curselection()
@@ -276,6 +285,11 @@ class Editor(Toplevel):
             self.root.list.insert(END, self.profile.get())
 
         self.destroy()
+
+    def destroy(self, event=None):
+        self.root.editor_open = False
+        self.root.editor_window = None
+        super().destroy()
 
 
 if __name__ == "__main__":
