@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- encoding=utf8 -*-
 
+__all__ = ['Config', ]
+
 from mttkinter.mtTkinter import *
 from tkinter.ttk import *
 from tkinter import messagebox
@@ -150,6 +152,11 @@ class Config(Toplevel):
             if okc:
                 del self.conf["profiles"][self.list.get(sel[0])]
                 self.list.delete(sel[0])
+
+    def destroy(self):
+        self.root.profiles_open = False
+        self.root.config_window = None
+        super().destroy()
 
 
 class Editor(Toplevel):

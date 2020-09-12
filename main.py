@@ -2,17 +2,17 @@
 # -*- encoding=utf8 -*-
 
 from sys import exit
-from os import listdir, makedirs, utime, stat
-from os.path import exists, join, basename, getmtime, getatime, isdir, normpath,\
+from os import listdir, makedirs, utime, stat, remove
+from os.path import exists, join, basename, getmtime, getatime, isdir, normpath, \
     dirname, abspath, isfile, islink
 from stat import S_ISDIR, S_ISLNK, S_ISREG, filemode
 from datetime import datetime
-from threading import Timer, Thread
-from queue import Queue
+from threading import Timer
 
 from mttkinter.mtTkinter import *
 from tkinter.ttk import *
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import filedialog, messagebox
+from MyDialogs import *
 
 from socket import socket, AF_INET, SOCK_STREAM
 from ssh2.session import Session
@@ -22,6 +22,7 @@ from ssh2.exceptions import *
 from ftplib import FTP, error_perm
 
 from Config import Config
+from thread_work import ThreadWork
 
 
 class MainView(Tk):
@@ -37,8 +38,11 @@ class MainView(Tk):
 
         self.wm_title("Tramet")
 
+        self.profiles_open = False
+        self.config_window = None
+
         self.conf = Config.load_file()
-        self.q = Queue()
+        self.worker = None
 
         self.enc = "utf-8"
         self.path = "/"
@@ -50,16 +54,16 @@ class MainView(Tk):
         self.keep_alive_timer_running = False
         self.is_busy = False
         self.found = -1
-        
+
         self.menubar = Menu(self)
         self.configure(menu=self.menubar)
-        
+
         self.filemenu = Menu(self.menubar, tearoff=False)
         self.menubar.add_cascade(label="File", menu=self.filemenu)
         self.filemenu.add_command(label="Profiles", command=self.open_profiles)
         self.filemenu.add_command(label="Exit", command=self.destroy)
         self.menubar.add_command(label="Search", command=self.find)
-        
+
         frame = Frame(self)
 
         Label(frame, text="profile:").grid(row=0, column=0, sticky=W)
@@ -67,7 +71,8 @@ class MainView(Tk):
                                   values=list(self.conf["profiles"].keys()))
         self.profileCB.bind("<<ComboboxSelected>>", self.set_profile)
         self.profileCB.grid(row=0, column=1, sticky=EW, columnspan=3)
-        self.profileCB.set("please select a profile" if len(self.conf["profiles"].keys()) > 0 else "please create a profile first")
+        self.profileCB.set(
+            "please select a profile" if len(self.conf["profiles"].keys()) > 0 else "please create a profile first")
 
         Label(frame, text="host:").grid(row=1, column=0, sticky=W)
         self.connectionCB = Combobox(frame, state="disabled", values=list(
@@ -140,7 +145,7 @@ class MainView(Tk):
         tree_frame.pack(fill=BOTH, expand=True)
 
         self.ctx = None
-        
+
         Sizegrip(self).pack(side=RIGHT)
 
         if len(self.conf["profiles"].keys()) > 0:
@@ -172,7 +177,7 @@ class MainView(Tk):
                 self.tree.selection_set(child)
                 self.tree.see(child)
                 return True
-            if i == len(children)-1:
+            if i == len(children) - 1:
                 self.found = -1
 
     def _keyOnTree(self, event):
@@ -214,7 +219,12 @@ class MainView(Tk):
             self.password = prof["password"]
 
     def open_profiles(self):
-        Config(self)
+        if not self.profiles_open:
+            self.profiles_open = True
+            self.config_window = Config(self)
+        else:
+            self.config_window.tkraise(self)
+            self.config_window.focus()
 
     def selection(self, e=None):
         if self.ctx:
@@ -224,7 +234,7 @@ class MainView(Tk):
     def find(self, event=None):  # todo
         messagebox.showinfo("Not yet", "Work in progress", parent=self)
 
-    def download_worker(self, src, file, ts, isFile=True):
+    def download_worker(self, conn, src, file, ts, isFile=True):
         if isFile:
             folder = filedialog.askdirectory(
                 title="Choose download destination")
@@ -240,7 +250,7 @@ class MainView(Tk):
                     if self.mode == "SFTP":
                         # print(src)
                         try:
-                            res = self.connection.session.scp_recv2(src)
+                            res = conn.session.scp_recv2(src)
                             if res:
                                 with open(join(folder, file), "wb+") as f:
                                     size = 0
@@ -259,17 +269,23 @@ class MainView(Tk):
                                             res[0].close()
                                             break
                                 utime(join(folder, file), (res[1].st_atime, res[1].st_mtime))
+                        except SCPProtocolError:
+                            messagebox.showerror("Insufficient Permissions",
+                                                 "Could not receive file because of insufficient permissions.",
+                                                 parent=self)
                         except Exception as e:
-                            print("error: ", e)
-                        print("done")
-                        # self.connection.get(src, join(folder, file),
-                        #                     encoding=self.enc, errors="replace")
-                        # utime(join(folder, file), ts)
+                            print("unknown error: ", e)
 
                     else:
-                        with open(join(folder, file), "wb+") as f:
-                            self.connection.retrbinary("RETR %s" % src, f.write)
-                        utime(join(folder, file), ts)
+                        try:
+                            with open(join(folder, file), "wb+") as f:
+                                conn.retrbinary("RETR %s" % join(src, file), f.write)
+                            utime(join(folder, file), ts)
+                        except error_perm:
+                            messagebox.showerror("Insufficient Permissions",
+                                                 "Could not receive file because of insufficient permissions.",
+                                                 parent=self)
+                            remove(join(folder, file))
         else:
             folder = filedialog.askdirectory(
                 title="Choose download destination")
@@ -289,13 +305,18 @@ class MainView(Tk):
                         def recurse(orig, path, fi):
                             if S_ISDIR(fi[1].permissions) != 0:
                                 makedirs(path, exist_ok=True)
-                                with self.connection.opendir(orig) as dirh_:
+                                with conn.opendir(orig) as dirh_:
                                     for size_, buf_, attrs_ in dirh_.readdir():
                                         o_ = buf_.decode(self.enc)
                                         if o_ not in [".", ".."]:
                                             recurse(join(orig, o_), join(path, o_), (o_, attrs_))
                             elif S_ISREG(fi[1].permissions) != 0:
-                                res_ = self.connection.session.scp_recv2(orig)
+                                res_ = None
+                                try:
+                                    res_ = conn.session.scp_recv2(orig)
+                                except SCPProtocolError:
+                                    messagebox.showerror("Download Error", "Could not recieve %s" % basename(orig),
+                                                         parent=self)
                                 if res_:
                                     with open(path, "wb+") as fil:
                                         size_ = 0
@@ -318,36 +339,28 @@ class MainView(Tk):
                                     utime(path,
                                           (res_[1].st_atime, res_[1].st_mtime))
 
-                                # self.connection.get(
-                                #     join(path, fi.filename),
-                                #     join(folder, path, fi.filename),
-                                #     encoding=self.enc
-                                # )
-                                # utime(join(path, fi.filename),
-                                #       (fi.st_atime, fi.st_mtime)
-                                # )
-
-                        # for obj in self.connection.listdir_attr(
+                        # for obj in conn.listdir_attr(
                         #         src, encoding=self.enc
                         # ):
                         #     recurse(src, obj)
-                        with self.connection.opendir(src) as dirh:
+                        with conn.opendir(src) as dirh:
                             for size, buf, attrs in dirh.readdir():
                                 o = buf.decode(self.enc)
                                 if o not in [".", ".."]:
                                     recurse(join(src, o), join(folder, file, o), (o, attrs))
                         print("done")
-                    else:
+                    else:  # FTP
                         def recurse(path, fi):
+                            print(path, fi)
                             if fi[0] == "d":
-                                makedirs(join(folder, path), exist_ok=True)
+                                makedirs(join(folder, file, basename(path)), exist_ok=True)
                                 data = {}
                                 dinfo = []
-                                self.connection.dir(path, dinfo.append)
-                                dfiles = self.connection.nlst(path)
-                                for f_ in sorted(dfiles, key=lambda y: y.lower()):
+                                conn.dir(path, dinfo.append)
+                                dfiles = conn.nlst(path)
+                                for f_ in sorted(dfiles, key=lambda x: (x.lower(), len(x))):
                                     fin = basename(f_)
-                                    for ifo in dinfo:
+                                    for ifo in sorted(dinfo, key=lambda x: (x.lower(), len(x))):
                                         if fin == ifo[-len(fin):]:
                                             data[fin] = ifo[:-len(fin)]
                                             dinfo.remove(ifo)
@@ -355,31 +368,34 @@ class MainView(Tk):
                                 for x in data.items():
                                     recurse(join(path, x[0]), x[1])
                             elif fi[0] == "-":
-                                with open(join(folder, path), "wb+") as fil:
-                                    self.connection.retrbinary("RETR %s" % path, fil.write)
+                                print("local", join(folder, file, basename(path)))
+                                print("remote", path)
+                                with open(join(folder, file, basename(path)), "wb+") as fil:
+                                    conn.retrbinary("RETR %s" % path, fil.write)
                                 try:
                                     dt = None
                                     if ":" in fi[-5:]:
-                                        dt = datetime.strptime(datetime.now().strftime("%Y")+" ".join(fi.split()[-3:]), "%Y%b %d %H:%M")
+                                        dt = datetime.strptime(
+                                            datetime.now().strftime("%Y") + " ".join(fi.split()[-3:]), "%Y%b %d %H:%M")
                                     else:
                                         dt = datetime.strptime(" ".join(fi.split()[-3:]), "%b %d %Y")
-                                    utime(join(folder, path), (dt.timestamp(), dt.timestamp()))
+                                    utime(join(folder, file, basename(path)), (dt.timestamp(), dt.timestamp()))
                                 except Exception as e:
                                     print(e, path)
 
                         dat = {}
                         info = []
-                        self.connection.dir(src, info.append)
-                        files = self.connection.nlst(src)
-                        for f in sorted(files, key=lambda y: y.lower()):
+                        conn.dir(join(src, file), info.append)
+                        files = conn.nlst(join(src, file))
+                        for f in sorted(files, key=lambda x: (x.lower(), len(x))):
                             fn = basename(f)
-                            for i in info:
+                            for i in sorted(info, key=lambda x: (x.lower(), len(x))):
                                 if fn == i[-len(fn):]:
                                     dat[fn] = i[:-len(fn)]
-                                    info.remove(fn)
+                                    info.remove(i)
                                     break
                         for inf in dat.items():
-                            recurse(join(src, inf[0]), inf[1])
+                            recurse(join(src, file, inf[0]), inf[1])
 
         self.is_busy = False
         messagebox.showinfo("DONE", "Download done!", parent=self)
@@ -421,36 +437,46 @@ class MainView(Tk):
                 channel.close()
                 channel.wait_closed()
                 p = channel.read()[1].decode(self.enc).strip()
-                self.path.set(p)
+                self.path.set(normpath(p))
             inf = self.connection.stat(p)
             if S_ISDIR(inf.permissions) != 0:
-                self.path.set(p)
+                self.path.set(normpath(p))
                 self.fill(self.connection)
             else:
                 if not self.is_busy and item_name:
-                    Thread(target=self.download_worker,
-                           args=["/".join((self.path.get(), item_name)),
-                                 item_name, (inf.atime, inf.mtime)],
-                           daemon=True).start()
+                    self.worker.add_task(
+                        self.download_worker,
+                        args=[
+                            "/".join((self.path.get(), item_name)),
+                            item_name,
+                            (inf.atime, inf.mtime)
+                        ]
+                    )
                 else:
                     messagebox.showinfo("busy", "A download is already running. Try again later.")
         elif self.mode == "FTP" and self.connected:
             fd = False
             if item_name == ".." or not item or self.tree.item(item, "values")[0][0] != "-":
-                try:
+                try:  # Try to change into path. If we can't, then it's either a file or insufficient permissions
                     self.connection.cwd(p)
-                    self.path.set(p)
+                    self.path.set(normpath(p))
                     self.fill(self.connection)
                     fd = True
+                except error_perm:
+                    messagebox.showwarning(
+                        "Permission Denied",
+                        "You don't have permission to see the content of this folder."
+                    )
+                    return
                 except Exception:
                     pass
             if not fd:
                 ts = datetime.strptime(
-                                 self.tree.item(item, "values")[1],
-                                 "%Y-%m-%d %H:%M:%S").timestamp()
-                Thread(target=self.download_worker,
-                       args=[item_name, item_name, (ts, ts)],
-                       daemon=True).start()
+                    self.tree.item(item, "values")[1],
+                    "%Y-%m-%d %H:%M:%S").timestamp()
+                self.worker.add_task(
+                    self.download_worker, args=[item_name, item_name, (ts, ts)]
+                )
 
     def fill(self, conn):
         self.tree.delete(*self.tree.get_children())
@@ -488,7 +514,12 @@ class MainView(Tk):
                                 ),
                                 image=img
                             )
-                except (PermissionError, SFTPProtocolError):
+                except SocketRecvError:
+                    messagebox.showinfo("Lost connection", "The connection was lost.")
+                    self.connected = False
+                    self.connection = None
+                    return
+                except (PermissionError, SFTPProtocolError, SFTPHandleError) as e:
                     messagebox.showwarning(
                         "Permission Denied",
                         "You don't have permission to see the content of this folder."
@@ -504,12 +535,15 @@ class MainView(Tk):
                 conn.dir(dir_res.append)
                 files = conn.nlst()
                 data = {}
-                for file in files:
-                    for fi in dir_res:
-                        if file in fi:
-                            data[file] = fi[:-len(file)]
+                for file in sorted(files, key=lambda x: (x.lower(), len(x))):
+                    t = basename(file)
+                    for fi in sorted(dir_res, key=lambda x: (x.lower(), len(x))):
+                        if file in fi[-len(t):]:
+                            data[t] = fi[:-len(file)]
+                            dir_res.remove(fi)
+                            break
 
-                for p in sorted(data.items(), key=lambda x: (x[1][0] == "-", x[0])):
+                for p in sorted(data.items(), key=lambda x: (x[1][0] == "-", x[0].lower())):
                     d = p[1].split()
                     dt = None
                     if d[0][0] != "d":
@@ -551,37 +585,41 @@ class MainView(Tk):
         sel = self.tree.selection()
         if len(sel) > 0:
             def download():
-                s = sel[0]  # TODO: queuing
-                # for s in sel:
-                item = self.tree.item(s)
-                isFile = item["values"][0][0] == "-"
-                if self.mode == "SFTP":
-                    nfo = self.connection.stat("%s/%s" % (self.path.get(), item["text"]))
-                    if not self.is_busy:
-                        t = Thread(target=self.download_worker, args=[
-                            "%s/%s" % (self.path.get(), item["text"]), item["text"], (nfo.atime, nfo.mtime),
-                            isFile
-                        ], daemon=True)
-                        t.start()
+                for s in sel:
+                    item = self.tree.item(s)
+                    isFile = item["values"][0][0] == "-"
+                    if self.mode == "SFTP":
+                        nfo = self.connection.stat("%s/%s" % (self.path.get(), item["text"]))
+                        if not self.is_busy:
+                            self.worker.add_task(
+                                self.download_worker,
+                                args=[
+                                    "%s/%s" % (self.path.get(), item["text"]),
+                                    item["text"], (nfo.atime, nfo.mtime),
+                                    isFile
+                                ]
+                            )
+                        else:
+                            messagebox.showinfo("busy",
+                                                "A download is already running. Try again later.")
                     else:
-                        messagebox.showinfo("busy",
-                                            "A download is already running. Try again later.")
-                else:
-                    ts = ()
-                    tim = item["values"][1]
-                    if tim:
-                        ts = datetime.strptime(
-                                     tim,
-                                     "%Y-%m-%d %H:%M:%S").timestamp()
-                    if not self.is_busy:
-                        t = Thread(target=self.download_worker, args=[
-                            self.path.get(), item["text"],
-                            (ts, ts), isFile
-                        ], daemon=True)
-                        t.start()
-                    else:
-                        messagebox.showinfo("busy",
-                                            "A download is already running. Try again later.")
+                        ts = ()
+                        tim = item["values"][1]
+                        if tim:
+                            ts = datetime.strptime(
+                                tim,
+                                "%Y-%m-%d %H:%M:%S").timestamp()
+                        if not self.is_busy:
+                            self.worker.add_task(
+                                self.download_worker,
+                                args=[
+                                    self.path.get(), item["text"],
+                                    (ts, ts), isFile
+                                ]
+                            )
+                        else:
+                            messagebox.showinfo("busy",
+                                                "A download is already running. Try again later.")
 
             self.ctx.add_command(
                 label="Download Selected",
@@ -601,362 +639,370 @@ class MainView(Tk):
         self.ctx.add_command(label="Delete", command=self.delete)
         self.ctx.tk_popup(e.x_root, e.y_root)
 
-    # def download_folder(self, folder):
-    #     if not self.is_busy:
-    #         t = Thread(target=self.download_worker, args=[
-    #             folder, folder,
-    #             None, False
-    #         ], daemon=True)
-    #         t.start()
-    #     else:
-    #         messagebox.showinfo("busy",
-    #                             "A download is already running. Try again later.")
-
     def mkdir(self):
-        name = simpledialog.askstring("Create Directory",
-                                      "Enter a name for the new directory:")
-        if self.mode == "SFTP":
-            if name.strip():
-                try:
-                    flgs = LIBSSH2_FXF_CREAT | LIBSSH2_SFTP_S_IRWXU | \
-                           LIBSSH2_SFTP_S_IRWXG | LIBSSH2_SFTP_S_IXOTH | \
-                           LIBSSH2_SFTP_S_IROTH
-                    self.connection.mkdir(join(self.path.get(), name), flgs)
-                except Exception as e:
-                    print(e)
-        else:
-            if name.strip():
-                try:
-                    self.connection.mkd(name)
-                except Exception as e:
-                    print(e)
-        self.fill(self.connection)
+        def worker_(connection, mode, path, fill):
+            a = AskString("Create Directory",
+                          "Enter a name for the new directory:")
+            self.wait_window(a)
+            name = a.result
 
-    def delete(self):
-        def do_recursive(path):
-            if self.mode == "SFTP":
-                try:
-                    st = self.connection.stat(path).permissions
-                    if S_ISREG(st) != 0:
-                        self.connection.unlink(path)
-                    elif S_ISDIR(st) != 0:
-                        with self.connection.opendir(path) as dirh:
-                            for size, buf, attrs in dirh.readdir():
-                                if buf.decode(self.enc) not in [".", ".."]:
-                                    do_recursive(join(path, buf.decode(self.enc)))
-                        try:
-                            self.connection.rmdir(path)
-                        except:
-                            print("rmdir failed: ", path)
-                            try:  # some links are recognized as folders
-                                self.connection.unlink(path)
-                            except:
-                                print("try rm failed too: ", path)
-                    elif S_ISLNK(st) != 0:
-                        print("lnk: ", path)
-                        try:
-                            self.connection.unlink(path)
-                        except:
-                            pass
-                        try:
-                            self.connection.rmdir(path)
-                        except:
-                            pass
-                except:
-                    print("no stat: ", path)
-                    try:
-                        self.connection.unlink(path)
-                    except:
-                        pass
-                    try:
-                        self.connection.rmdir(path)
-                    except:
-                        pass
-
-            else:
-                try:
-                    self.connection.delete(path)
-                except Exception as e:
-                    try:
-                        for obj in self.connection.nlst(path):
-                            print(obj)
-                            do_recursive(obj)
-                        self.connection.rmd(path)
-                    except Exception:
-                        pass
-
-        if self.mode == "SFTP":
-            idx = self.tree.selection()
-            if len(idx) > 0:
-                yesno = messagebox.askyesno(
-                    "Delete Selected",
-                    "Are you sure you want to delete the selected objects?"
-                )
-                if yesno:
-                    for i in idx:
-                        if S_ISDIR(int(self.tree.item(i, "values")[-2])) == 0:
-                            self.connection.unlink(
-                                "/".join([self.path.get(),
-                                          self.tree.item(i, "text")])
-                            )
-                        else:
-                            do_recursive("/".join([self.path.get(),
-                                                   self.tree.item(i, "text")]))
-                        self.tree.delete(i)
-        else:
-            idx = self.tree.selection()
-            if len(idx) > 0:
-                yesno = messagebox.askyesno(
-                    "Delete Selected",
-                    "Are you sure you want to delete the selected objects?"
-                )
-                if yesno:
-                    for i in idx:
-                        if self.tree.item(i, "values")[-2] == "True":
-                            do_recursive("/".join([self.path.get(),
-                                                   self.tree.item(i, "text")]))
-                        else:
-                            self.connection.delete(
-                                "/".join([self.path.get(),
-                                          self.tree.item(i, "text")])
-                            )
-                        self.tree.delete(i)
-
-    def rename(self):
-        idx = self.tree.selection()
-        if len(idx) > 0:
-            name = simpledialog.askstring("Rename", "Enter new name for %s:"
-                                          % self.tree.item(idx[0], "text"),
-                                          initialvalue=self.tree.item(idx[0], "text"))
-            if self.mode == "SFTP":
-                if name and name.strip():
-                    try:
-                        self.connection.rename(
-                            join(self.path.get(), self.tree.item(idx[0], "text")),
-                            join(self.path.get(), name))
-                        self.tree.item(idx[0], text=name)
-                    except Exception as e:
-                        print(e)
-            else:
+            if mode == "SFTP":
                 if name.strip():
                     try:
-                        self.connection.rename(self.tree.item(idx[0], "text"),
-                                               name)
-                        self.tree.item(idx[0], text=name)
-                    except Exception as e:
-                        print(e)
-
-    def upload_file(self):
-        files = filedialog.askopenfilenames(title="Choose files to upload",
-                                            parent=self)
-        dest = simpledialog.askstring(
-            title="Choose destination", prompt="Choose upload destination",
-            parent=self, initialvalue=self.path.get()
-        )
-        if files and len(files) > 0 and dest:
-            if self.mode == "SFTP":
-                self.is_busy = True
-                for file in files:
-                    # tm = getmtime(file)
-                    # ta = getatime(file)
-                    # tgt = "%s/%s" % (dest.strip(), basename(file))
-                    # self.connection.put(file, tgt, encoding=self.enc)
-                    # self.connection.utime(tgt, (ta, tm), encoding=self.enc)
-                    fifo = stat(file)
-
-                    # chan = self.connection.session.scp_send64(
-                    #     "%s/%s" % (dest.strip(), basename(file)),
-                    #     fifo.st_mode & 0o777,
-                    #     fifo.st_size,
-                    #     fifo.st_mtime, fifo.st_atime)
-                    mode = LIBSSH2_SFTP_S_IRUSR | \
-                           LIBSSH2_SFTP_S_IWUSR | \
-                           LIBSSH2_SFTP_S_IRGRP | \
-                           LIBSSH2_SFTP_S_IROTH
-                    f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE
-                    with open(file, 'rb') as lofi:
-                        with self.connection.open("%s/%s" % (dest.strip(), basename(file)), f_flags, mode) as remfi:
-                            for data in lofi:
-                                remfi.write(data)
-                            attr = SFTPAttributes(fifo)
-                            # attr.filesize = fifo.st_size
-                            # print(file, datetime.fromtimestamp(fifo.st_mtime))
-                            # attr.atime = fifo.st_atime
-                            # attr.mtime = fifo.st_mtime
-                            # attr.permissions = fifo.st_mode
-                            # attr.gid = fifo.st_gid
-                            # attr.uid = fifo.st_uid
-                            remfi.fsetstat(attr)
-                    t = self.connection.stat("%s/%s" % (dest.strip(), basename(file)))
-                    print(datetime.fromtimestamp(t.atime), datetime.fromtimestamp(t.mtime))
-            else:
-                self.is_busy = True
-                for file in files:
-                    try:
-                        with open(file, "rb") as f:
-                            self.connection.storbinary(
-                                "STOR %s" % basename(file), f
-                            )
-                        self.connection.voidcmd("MFMT %s %s" % (
-                            datetime.fromtimestamp(
-                                getmtime(file)
-                            ).strftime("%Y%m%d%H%M%S"),
-                            file
-                        ))
-                    except Exception as e:
-                        print(e)
-        self.fill(self.connection)
-        self.is_busy = False
-        messagebox.showinfo("DONE", "Upload done!", parent=self)
-
-    def upload_folder(self):
-        folder = filedialog.askdirectory(
-            title="Choose folder to upload", parent=self
-        )
-        dest = simpledialog.askstring(
-            title="Choose upload destination",
-            prompt="Input upload destination path",
-            parent=self,
-            initialvalue=self.path.get()
-        )
-
-        def recurse(destination, target):
-            if self.mode == "SFTP":
-                if islink(target):
-                    return
-                elif isdir(target):
-                    try:
-                        # self.connection.mkdir(
-                        #     "%s/%s" % (destination, basename(target)),
-                        #     encoding=self.enc
-                        # )
                         flgs = LIBSSH2_FXF_CREAT | LIBSSH2_SFTP_S_IRWXU | \
                                LIBSSH2_SFTP_S_IRWXG | LIBSSH2_SFTP_S_IXOTH | \
                                LIBSSH2_SFTP_S_IROTH
-                        self.connection.mkdir("%s/%s" % (destination, basename(target)), flgs)
-                        for f in listdir(target):
-                            recurse("%s/%s" % (destination, basename(target)),
-                                    "%s/%s" % (target, basename(f)))
-                    except Exception as e:
-                        print(target, e)
-                elif isfile(target):
-                    # tm = getmtime(target)
-                    # ta = getatime(target)
-                    # self.connection.put(
-                    #     target, "%s/%s" % (destination, basename(target)),
-                    #     encoding=self.enc
-                    # )
-                    # self.connection.utime(
-                    #     "%s/%s" % (destination, basename(target)), (ta, tm),
-                    #     encoding=self.enc
-                    # )
-                    fifo = stat(target)
-                    mode = LIBSSH2_SFTP_S_IRUSR | \
-                           LIBSSH2_SFTP_S_IWUSR | \
-                           LIBSSH2_SFTP_S_IRGRP | \
-                           LIBSSH2_SFTP_S_IROTH
-                    f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE
-                    with open(target, 'rb') as lofi:
-                        # print("target", target)
-                        # print("dest", "%s/%s" % (destination.strip(), basename(target)))
-                        with self.connection.open(
-                                "%s/%s" % (destination.strip(), basename(target)),
-                                f_flags, mode) as remfi:
-                            for data in lofi:
-                                remfi.write(data)
-                            attr = SFTPAttributes(fifo)
-                            # attr.filesize = fifo.st_size
-                            # print(file, datetime.fromtimestamp(fifo.st_mtime))
-                            # attr.atime = fifo.st_atime
-                            # attr.mtime = fifo.st_mtime
-                            # attr.permissions = fifo.st_mode
-                            # attr.gid = fifo.st_gid
-                            # attr.uid = fifo.st_uid
-                            remfi.fsetstat(attr)
-                    # t = self.connection.stat(
-                    #     "%s/%s" % (destination.strip(), basename(target)))
-                    # print(datetime.fromtimestamp(t.atime),
-                    #       datetime.fromtimestamp(t.mtime))
-            else:
-                if islink(target):
-                    return
-                elif isdir(target):
-                    self.connection.mkd(
-                        "%s/%s" % (destination, basename(target))
-                    )
-                    for f in listdir(target):
-                        recurse("%s/%s" % (destination, basename(target)),
-                                "%s/%s" % (target, basename(f)))
-                elif isfile(target):
-                    try:
-                        with open(target, "rb") as f:
-                            self.connection.storbinary(
-                                "STOR %s/%s" % (destination, basename(target)),
-                                f
-                            )
-                        self.connection.voidcmd(
-                            "MDTM %s %s" % (
-                                datetime.fromtimestamp(
-                                    getmtime(target)
-                                ).strftime("%Y%m%d%H%M%S"),
-                                "%s/%s" % (destination, basename(target))
-                            )
-                        )
+                        connection.mkdir(join(path, name), flgs)
                     except Exception as e:
                         print(e)
-        if folder and dest:
-            self.is_busy = True
-            if self.mode == "SFTP":
-                try:
-                    p = self.path.get()
-                    if p in dest:
-                        tmp = dest[len(p)+1:]  # +1 to remove slash
-                    for fo in tmp.split("/"):
-                        if fo:
-                            # self.connection.mkdir(fo, encoding=self.enc)
-                            # self.connection.chdir(fo, encoding=self.enc)
+            else:
+                connection.cwd(path)
+                if name.strip():
+                    try:
+                        connection.mkd(name)
+                    except Exception as e:
+                        print(e)
+            if name.strip():
+                fill(connection)
+
+        self.worker.add_task(worker_, args=[
+            self.mode, self.path.get(), self.fill
+        ])
+
+    def delete(self):
+        def worker_(connection, mode, path_, enc, tree):
+            def do_recursive(path):
+                if mode == "SFTP":
+                    try:
+                        st = connection.stat(path).permissions
+                        if S_ISREG(st) != 0:
+                            connection.unlink(path)
+                        elif S_ISDIR(st) != 0:
+                            with connection.opendir(path) as dirh:
+                                for size, buf, attrs in dirh.readdir():
+                                    if buf.decode(enc) not in [".", ".."]:
+                                        do_recursive(join(path, buf.decode(enc)))
+                            try:
+                                connection.rmdir(path)
+                            except:
+                                print("rmdir failed: ", path)
+                                try:  # some links are recognized as folders
+                                    connection.unlink(path)
+                                except:
+                                    print("try rm failed too: ", path)
+                        elif S_ISLNK(st) != 0:
+                            print("lnk: ", path)
+                            try:
+                                connection.unlink(path)
+                            except:
+                                pass
+                            try:
+                                connection.rmdir(path)
+                            except:
+                                pass
+                    except:
+                        print("no stat: ", path)
+                        try:
+                            connection.unlink(path)
+                        except:
+                            pass
+                        try:
+                            connection.rmdir(path)
+                        except:
+                            pass
+
+                else:
+                    try:
+                        connection.delete(path)
+                    except Exception as e:
+                        try:
+                            for obj in connection.nlst(path):
+                                print(obj)
+                                do_recursive(obj)
+                            connection.rmd(path)
+                        except Exception:
+                            pass
+
+            if mode == "SFTP":
+                idx = tree.selection()
+                if len(idx) > 0:
+                    yesno = messagebox.askyesno(
+                        "Delete Selected",
+                        "Are you sure you want to delete the selected objects?"
+                    )
+                    if yesno:
+                        for i in idx:
+                            if S_ISDIR(int(tree.item(i, "values")[-2])) == 0:
+                                connection.unlink(
+                                    "/".join([path_.get(),
+                                              tree.item(i, "text")])
+                                )
+                            else:
+                                do_recursive("/".join([path_.get(),
+                                                       tree.item(i, "text")]))
+                            tree.delete(i)
+            else:
+                idx = tree.selection()
+                if len(idx) > 0:
+                    yesno = messagebox.askyesno(
+                        "Delete Selected",
+                        "Are you sure you want to delete the selected objects?"
+                    )
+                    if yesno:
+                        for i in idx:
+                            if tree.item(i, "values")[-2] == "True":
+                                do_recursive("/".join([path_.get(),
+                                                       tree.item(i, "text")]))
+                            else:
+                                connection.delete(
+                                    "/".join([path_.get(),
+                                              tree.item(i, "text")])
+                                )
+                            tree.delete(i)
+
+        self.worker.add_task(worker_, args=[
+            self.mode, self.path, self.enc, self.tree
+        ])
+
+    def rename(self):
+        def worker_(connection, mode, path, tree):
+            idx = tree.selection()
+            if len(idx) > 0:
+                a = AskString("Rename",
+                              "Enter new name for %s:" % tree.item(idx[0], "text"),
+                              initial_value=tree.item(idx[0], "text"))
+                self.wait_window(a)
+                name = a.result
+
+                if mode == "SFTP":
+                    if name and name.strip():
+                        try:
+                            connection.rename(
+                                join(path, tree.item(idx[0], "text")),
+                                join(path, name))
+                            tree.item(idx[0], text=name)
+                        except Exception as e:
+                            print(e)
+                else:
+                    if name.strip():
+                        connection.cwd(path)
+                        try:
+                            connection.rename(tree.item(idx[0], "text"),
+                                              name)
+                            tree.item(idx[0], text=name)
+                        except Exception as e:
+                            print(e)
+
+        self.worker.add_task(worker_, args=[
+            self.mode, self.path.get(), self.tree
+        ])
+
+    def upload_file(self):
+        def worker_(conn, rt):
+            files = filedialog.askopenfilenames(title="Choose files to upload",
+                                                parent=rt)
+
+            a = AskString("Choose destination",
+                          "Choose upload destination",
+                          initial_value=rt.path.get())
+            self.wait_window(a)
+            dest = a.result
+
+            if files and len(files) > 0 and dest:
+                if rt.mode == "SFTP":
+                    rt.is_busy = True
+                    for file in files:
+                        fifo = stat(file)
+
+                        # chan = conn.session.scp_send64(
+                        #     "%s/%s" % (dest.strip(), basename(file)),
+                        #     fifo.st_mode & 0o777,
+                        #     fifo.st_size,
+                        #     fifo.st_mtime, fifo.st_atime)
+                        mode = LIBSSH2_SFTP_S_IRUSR | \
+                               LIBSSH2_SFTP_S_IWUSR | \
+                               LIBSSH2_SFTP_S_IRGRP | \
+                               LIBSSH2_SFTP_S_IROTH
+                        f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE
+                        with open(file, 'rb') as lofi:
+                            with conn.open("%s/%s" % (dest.strip(), basename(file)), f_flags, mode) as remfi:
+                                for data in lofi:
+                                    remfi.write(data)
+                                attr = SFTPAttributes(fifo)
+                                # attr.filesize = fifo.st_size
+                                # print(file, datetime.fromtimestamp(fifo.st_mtime))
+                                # attr.atime = fifo.st_atime
+                                # attr.mtime = fifo.st_mtime
+                                # attr.permissions = fifo.st_mode
+                                # attr.gid = fifo.st_gid
+                                # attr.uid = fifo.st_uid
+                                remfi.fsetstat(attr)
+                        t = conn.stat("%s/%s" % (dest.strip(), basename(file)))
+                        print(datetime.fromtimestamp(t.atime), datetime.fromtimestamp(t.mtime))
+                else:
+                    rt.is_busy = True
+                    # conn.cwd(dest)
+                    for file in files:
+                        try:
+                            with open(file, "rb") as f:
+                                conn.storbinary(
+                                    "STOR %s" % join(dest, basename(file)), f
+                                )
+                            conn.voidcmd("MFMT %s %s" % (
+                                datetime.fromtimestamp(
+                                    getmtime(file)
+                                ).strftime("%Y%m%d%H%M%S"),
+                                file
+                            ))
+                        except Exception as e:
+                            print(e)
+            rt.fill(conn)
+            rt.is_busy = False
+            messagebox.showinfo("DONE", "Upload done!", parent=rt)
+
+        self.worker.add_task(worker_, args=[self, ])
+
+    def upload_folder(self):
+        def worker_(conn, rt):
+            folder = filedialog.askdirectory(
+                title="Choose folder to upload", parent=rt
+            )
+
+            a = AskString("Choose upload destination",
+                          "Input upload destination path",
+                          initial_value=rt.path.get())
+            self.wait_window(a)
+            dest = a.result
+
+            def recurse(destination, target):
+                if rt.mode == "SFTP":
+                    if islink(target):
+                        return
+                    elif isdir(target):
+                        try:
                             flgs = LIBSSH2_FXF_CREAT | LIBSSH2_SFTP_S_IRWXU | \
                                    LIBSSH2_SFTP_S_IRWXG | LIBSSH2_SFTP_S_IXOTH | \
                                    LIBSSH2_SFTP_S_IROTH
-                            self.connection.mkdir(fo, flgs)
-                    self.path.set("%s/%s" % (p, fo))
-                except Exception as e:
-                    pass
-                if not isfile(folder):
-                    try:
-                        # self.connection.mkdir(basename(folder))
-                        flgs = LIBSSH2_FXF_CREAT | LIBSSH2_SFTP_S_IRWXU | \
-                               LIBSSH2_SFTP_S_IRWXG | LIBSSH2_SFTP_S_IXOTH | \
+                            conn.mkdir("%s/%s" % (destination, basename(target)), flgs)
+                            for f in listdir(target):
+                                recurse("%s/%s" % (destination, basename(target)),
+                                        "%s/%s" % (target, basename(f)))
+                        except Exception as e:
+                            print(target, e)
+                    elif isfile(target):
+                        fifo = stat(target)
+                        mode = LIBSSH2_SFTP_S_IRUSR | \
+                               LIBSSH2_SFTP_S_IWUSR | \
+                               LIBSSH2_SFTP_S_IRGRP | \
                                LIBSSH2_SFTP_S_IROTH
-                        self.connection.mkdir("%s/%s" % (self.path.get(), basename(folder)), flgs)
-                    except Exception as e:
-                        pass
-            else:
-                try:
-                    p = self.path.get()
-                    if p in dest:
-                        tmp = dest[len(p) + 1:]  # +1 to remove slash
-                    for fo in tmp.split("/"):
-                        if fo:
-                            self.connection.mkd(dest)
-                            self.connection.mkd(
-                                "%s/%s" % (dest, basename(folder))
+                        f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE
+                        with open(target, 'rb') as lofi:
+                            # print("target", target)
+                            # print("dest", "%s/%s" % (destination.strip(), basename(target)))
+                            with conn.open(
+                                    "%s/%s" % (destination.strip(), basename(target)),
+                                    f_flags, mode) as remfi:
+                                for data in lofi:
+                                    remfi.write(data)
+                                attr = SFTPAttributes(fifo)
+                                # attr.filesize = fifo.st_size
+                                # print(file, datetime.fromtimestamp(fifo.st_mtime))
+                                # attr.atime = fifo.st_atime
+                                # attr.mtime = fifo.st_mtime
+                                # attr.permissions = fifo.st_mode
+                                # attr.gid = fifo.st_gid
+                                # attr.uid = fifo.st_uid
+                                remfi.fsetstat(attr)
+                        # t = conn.stat(
+                        #     "%s/%s" % (destination.strip(), basename(target)))
+                        # print(datetime.fromtimestamp(t.atime),
+                        #       datetime.fromtimestamp(t.mtime))
+                else:
+                    # conn.cwd(rt.path.get())
+                    if islink(target):
+                        return
+                    elif isdir(target):
+                        conn.mkd(
+                            "%s/%s" % (destination, basename(target))
+                        )
+                        for f in listdir(target):
+                            recurse("%s/%s" % (destination, basename(target)),
+                                    "%s/%s" % (target, basename(f)))
+                    elif isfile(target):
+                        try:
+                            with open(target, "rb") as f:
+                                conn.storbinary(
+                                    "STOR %s/%s" % (destination, basename(target)),
+                                    f
+                                )
+                            conn.voidcmd(
+                                "MDTM %s %s" % (
+                                    datetime.fromtimestamp(
+                                        getmtime(target)
+                                    ).strftime("%Y%m%d%H%M%S"),
+                                    "%s/%s" % (destination, basename(target))
+                                )
                             )
-                    self.path.set(self.connection.pwd())
-                except Exception as e:
-                    print("mkdir orig2 err:", e)
-                if not isfile(folder):
+                        except Exception as e:
+                            print(e)
+
+            if folder and dest:
+                conn.cwd(rt.path.get())
+                rt.is_busy = True
+                if rt.mode == "SFTP":
                     try:
-                        self.connection.mkd(basename(folder))
+                        p = rt.path.get()
+                        if p in dest:
+                            tmp = dest[len(p) + 1:]  # +1 to remove slash
+                        for fo in tmp.split("/"):
+                            if fo:
+                                # conn.mkdir(fo, encoding=rt.enc)
+                                # conn.chdir(fo, encoding=rt.enc)
+                                flgs = LIBSSH2_FXF_CREAT | LIBSSH2_SFTP_S_IRWXU | \
+                                       LIBSSH2_SFTP_S_IRWXG | LIBSSH2_SFTP_S_IXOTH | \
+                                       LIBSSH2_SFTP_S_IROTH
+                                conn.mkdir(fo, flgs)
+                        rt.path.set(normpath("%s/%s" % (p, fo)))
                     except Exception as e:
                         pass
-            for f_ in listdir(folder):
-                recurse(normpath("%s/%s" % (dest, basename(folder))),
-                        normpath("%s/%s" % (folder, basename(f_))))
+                    if not isfile(folder):
+                        try:
+                            # conn.mkdir(basename(folder))
+                            flgs = LIBSSH2_FXF_CREAT | LIBSSH2_SFTP_S_IRWXU | \
+                                   LIBSSH2_SFTP_S_IRWXG | LIBSSH2_SFTP_S_IXOTH | \
+                                   LIBSSH2_SFTP_S_IROTH
+                            conn.mkdir("%s/%s" % (rt.path.get(), basename(folder)), flgs)
+                        except Exception as e:
+                            pass
+                else:
+                    try:
+                        p = rt.path.get()
+                        tmp = ""
+                        if p in dest:
+                            tmp = dest[len(p) + 1:]  # +1 to remove slash
+                        ctmp = p
+                        for fo in tmp.split("/"):
+                            try:
+                                if fo:
+                                    conn.mkd("%s/%s" % (ctmp, fo))
+                                    ctmp += "/" + fo
+                            except Exception as e:
+                                print(ctmp, e)
+                        conn.mkd(
+                            "%s/%s" % (dest, basename(folder))
+                        )
+                        # rt.path.set(conn.pwd())
+                    except Exception as e:
+                        print("mkdir orig2 err:", e)
+                for f_ in listdir(folder):
+                    recurse(normpath("%s/%s" % (dest, basename(folder))),
+                            normpath("%s/%s" % (folder, basename(f_))))
 
-            self.fill(self.connection)
-            self.is_busy = False
-            messagebox.showinfo("DONE", "Upload done!", parent=self)
+                self.fill(conn)
+                rt.is_busy = False
+                messagebox.showinfo("DONE", "Upload done!", parent=rt)
+
+        self.worker.add_task(worker_, args=[self, ])
 
     def keep_alive(self):
         if not self.keep_alive_timer_running:
@@ -1062,6 +1108,14 @@ class MainView(Tk):
         if connection:
             self.fill(connection)
             self.connected = True
+            self.worker = ThreadWork(
+                self.mode,
+                self.connectionCB.get(),
+                self.port,
+                self.nameE.get(),
+                self.password,
+                self.enc
+            )
 
         self.connect_btn["text"] = "Connect" if not self.connected else "Disconnect"
 
@@ -1070,6 +1124,8 @@ class MainView(Tk):
     def destroy(self):
         self.conf["current_profile"] = self.profileCB.get()
         Config.save_file(self.conf)
+        if self.worker:
+            self.worker.stop()
         super().destroy()
 
 
