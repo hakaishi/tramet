@@ -52,7 +52,6 @@ class ThreadWork:
             if not self.q.empty():
                 conn, func, data = self.q.get(False)
                 if data:
-                    print(func, conn, data)
                     try:
                         func(conn, *data)
                     except Exception as e:

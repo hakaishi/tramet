@@ -641,7 +641,7 @@ class MainView(Tk):
 
     def mkdir(self):
         def worker_(connection, mode, path, fill):
-            a = AskString("Create Directory",
+            a = AskString(self, "Create Directory",
                           "Enter a name for the new directory:")
             self.wait_window(a)
             name = a.result
@@ -768,7 +768,7 @@ class MainView(Tk):
         def worker_(connection, mode, path, tree):
             idx = tree.selection()
             if len(idx) > 0:
-                a = AskString("Rename",
+                a = AskString(self, "Rename",
                               "Enter new name for %s:" % tree.item(idx[0], "text"),
                               initial_value=tree.item(idx[0], "text"))
                 self.wait_window(a)
@@ -802,7 +802,7 @@ class MainView(Tk):
             files = filedialog.askopenfilenames(title="Choose files to upload",
                                                 parent=rt)
 
-            a = AskString("Choose destination",
+            a = AskString(self, "Choose destination",
                           "Choose upload destination",
                           initial_value=rt.path.get())
             self.wait_window(a)
@@ -868,7 +868,7 @@ class MainView(Tk):
                 title="Choose folder to upload", parent=rt
             )
 
-            a = AskString("Choose upload destination",
+            a = AskString(self, "Choose upload destination",
                           "Input upload destination path",
                           initial_value=rt.path.get())
             self.wait_window(a)

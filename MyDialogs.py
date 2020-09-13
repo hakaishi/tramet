@@ -3,21 +3,15 @@
 
 from mttkinter.mtTkinter import *
 from tkinter.ttk import *
+from tkinter import StringVar
 
 
 class AskString(Toplevel):
-    def __init__(self, title="", text="", initial_value="", root=None):
+    def __init__(self, root, title="", text="", initial_value=""):
         super().__init__(root)
 
         self.result = ""
-        self.parent = None
-        self.standalone = True
-        if root:
-            self.parent = root
-            self.standalone = False
-        else:
-            self.parent = Tk()
-            self.parent.withdraw()
+        self.parent = root
 
         self.wm_title(title or root.title() if root else "")
 
@@ -47,6 +41,7 @@ class AskString(Toplevel):
         self.bind("<Escape>", self.destroy)
 
         self.deiconify()
+        self.focus()
         self.focus_set()
         self.grab_set()
         self.entry.focus()
@@ -55,15 +50,15 @@ class AskString(Toplevel):
         if root and root.winfo_viewable():
             self.transient(root)
 
+        # root.wait_window(self)
+
     def ok(self, event=None):
         self.result = self.string.get()
-        self.destroy(event)
+        self.destroy()
 
-    def destroy(self, event=None):
-        if not self.standalone:
-            self.parent.focus_set()
-        else:
-            self.parent.destroy()
+    def destroy(self):
+        self.parent.focus_set()
         super().destroy()
+
 
 __all__ = ["AskString", ]
