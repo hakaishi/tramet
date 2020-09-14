@@ -56,7 +56,7 @@ class AskString(Toplevel):
         self.result = self.string.get()
         self.destroy()
 
-    def destroy(self):
+    def destroy(self, event=None):
         self.parent.focus_set()
         super().destroy()
 

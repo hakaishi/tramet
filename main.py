@@ -64,6 +64,11 @@ class MainView(Tk):
         self.filemenu.add_command(label="Exit", command=self.destroy)
         self.menubar.add_command(label="Search", command=self.find)
 
+        self.grid_rowconfigure(0, weight=0)
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=0)
+        self.grid_columnconfigure(0, weight=1)
+
         frame = Frame(self)
 
         Label(frame, text="profile:").grid(row=0, column=0, sticky=W)
@@ -102,7 +107,7 @@ class MainView(Tk):
         self.connect_btn = Button(frame, text="Connect", command=self.connect)
         self.connect_btn.grid(row=4, column=0, columnspan=4, sticky=EW, pady=10)
 
-        frame.pack(fill=X, expand=True)
+        frame.grid(row=0, column=0, sticky=EW)
         frame.grid_columnconfigure(0, weight=0)
         frame.grid_columnconfigure(1, weight=1)
 
@@ -130,6 +135,8 @@ class MainView(Tk):
         self.tree.bind("<Button-1>", self.selection)
         self.tree.bind('<FocusIn>', self.on_get_focus)
         self.tree.bind("<Button-3>", self.context)
+        self.tree.bind_all("<Shift_L><F2>", self.rename)
+        self.tree.bind("<Delete>", self.delete)
         self.bind_all("<F5>", lambda e: self.fill(self.connection))
 
         self._toSearch = StringVar()
@@ -142,11 +149,11 @@ class MainView(Tk):
 
         scrollbar.config(command=self.tree.yview)
 
-        tree_frame.pack(fill=BOTH, expand=True)
+        tree_frame.grid(row=1, column=0, sticky=NSEW)
 
         self.ctx = None
 
-        Sizegrip(self).pack(side=RIGHT)
+        Sizegrip(self).grid(row=2, column=0, sticky=E)
 
         if len(self.conf["profiles"].keys()) > 0:
             c = self.conf.get("current_profile", "")
@@ -234,13 +241,11 @@ class MainView(Tk):
     def find(self, event=None):  # todo
         messagebox.showinfo("Not yet", "Work in progress", parent=self)
 
-    def download_worker(self, conn, src, file, ts, isFile=True):
+    def download_worker(self, conn, src, file, ts, isFile=True, destination=""):
         if isFile:
-            folder = filedialog.askdirectory(
-                title="Choose download destination")
-            if folder:
+            if destination:
                 overwrite = True
-                if exists(join(folder, file)):
+                if exists(join(destination, file)):
                     overwrite = messagebox.askokcancel(
                         "Overwrite existing file?",
                         "A file with the same name already exists. Do you want to override it?",
@@ -252,7 +257,7 @@ class MainView(Tk):
                         try:
                             res = conn.session.scp_recv2(src)
                             if res:
-                                with open(join(folder, file), "wb+") as f:
+                                with open(join(destination, file), "wb+") as f:
                                     size = 0
                                     while True:
                                         siz, tbuff = res[0].read()
@@ -268,7 +273,7 @@ class MainView(Tk):
                                         if size >= res[1].st_size:
                                             res[0].close()
                                             break
-                                utime(join(folder, file), (res[1].st_atime, res[1].st_mtime))
+                                utime(join(destination, file), (res[1].st_atime, res[1].st_mtime))
                         except SCPProtocolError:
                             messagebox.showerror("Insufficient Permissions",
                                                  "Could not receive file because of insufficient permissions.",
@@ -278,26 +283,24 @@ class MainView(Tk):
 
                     else:
                         try:
-                            with open(join(folder, file), "wb+") as f:
+                            with open(join(destination, file), "wb+") as f:
                                 conn.retrbinary("RETR %s" % join(src, file), f.write)
-                            utime(join(folder, file), ts)
+                            utime(join(destination, file), ts)
                         except error_perm:
                             messagebox.showerror("Insufficient Permissions",
                                                  "Could not receive file because of insufficient permissions.",
                                                  parent=self)
-                            remove(join(folder, file))
+                            remove(join(destination, file))
         else:
-            folder = filedialog.askdirectory(
-                title="Choose download destination")
-            if folder:
+            if destination:
                 overwrite = True
-                if exists(join(folder, file)):
+                if exists(join(destination, file)):
                     overwrite = messagebox.askokcancel(
                         "Overwrite existing files?",
                         "A folder with the same name already exists. Do you want to override all contained files?",
                         parent=self)
                 else:
-                    makedirs(join(folder, file), exist_ok=True)
+                    makedirs(join(destination, file), exist_ok=True)
                 if overwrite:
                     self.is_busy = True
 
@@ -347,13 +350,13 @@ class MainView(Tk):
                             for size, buf, attrs in dirh.readdir():
                                 o = buf.decode(self.enc)
                                 if o not in [".", ".."]:
-                                    recurse(join(src, o), join(folder, file, o), (o, attrs))
+                                    recurse(join(src, o), join(destination, file, o), (o, attrs))
                         print("done")
                     else:  # FTP
                         def recurse(path, fi):
                             print(path, fi)
                             if fi[0] == "d":
-                                makedirs(join(folder, file, basename(path)), exist_ok=True)
+                                makedirs(join(destination, file, basename(path)), exist_ok=True)
                                 data = {}
                                 dinfo = []
                                 conn.dir(path, dinfo.append)
@@ -368,9 +371,9 @@ class MainView(Tk):
                                 for x in data.items():
                                     recurse(join(path, x[0]), x[1])
                             elif fi[0] == "-":
-                                print("local", join(folder, file, basename(path)))
+                                print("local", join(destination, file, basename(path)))
                                 print("remote", path)
-                                with open(join(folder, file, basename(path)), "wb+") as fil:
+                                with open(join(destination, file, basename(path)), "wb+") as fil:
                                     conn.retrbinary("RETR %s" % path, fil.write)
                                 try:
                                     dt = None
@@ -379,7 +382,7 @@ class MainView(Tk):
                                             datetime.now().strftime("%Y") + " ".join(fi.split()[-3:]), "%Y%b %d %H:%M")
                                     else:
                                         dt = datetime.strptime(" ".join(fi.split()[-3:]), "%b %d %Y")
-                                    utime(join(folder, file, basename(path)), (dt.timestamp(), dt.timestamp()))
+                                    utime(join(destination, file, basename(path)), (dt.timestamp(), dt.timestamp()))
                                 except Exception as e:
                                     print(e, path)
 
@@ -444,12 +447,16 @@ class MainView(Tk):
                 self.fill(self.connection)
             else:
                 if not self.is_busy and item_name:
+                    destination = filedialog.askdirectory(
+                        title="Choose download destination")
                     self.worker.add_task(
                         self.download_worker,
                         args=[
                             "/".join((self.path.get(), item_name)),
                             item_name,
-                            (inf.atime, inf.mtime)
+                            (inf.atime, inf.mtime),
+                            True,
+                            destination
                         ]
                     )
                 else:
@@ -474,8 +481,10 @@ class MainView(Tk):
                 ts = datetime.strptime(
                     self.tree.item(item, "values")[1],
                     "%Y-%m-%d %H:%M:%S").timestamp()
+                destination = filedialog.askdirectory(
+                    title="Choose download destination")
                 self.worker.add_task(
-                    self.download_worker, args=[item_name, item_name, (ts, ts)]
+                    self.download_worker, args=[item_name, item_name, (ts, ts), True, destination]
                 )
 
     def fill(self, conn):
@@ -585,6 +594,8 @@ class MainView(Tk):
         sel = self.tree.selection()
         if len(sel) > 0:
             def download():
+                destination = filedialog.askdirectory(
+                    title="Choose download destination")
                 for s in sel:
                     item = self.tree.item(s)
                     isFile = item["values"][0][0] == "-"
@@ -596,7 +607,8 @@ class MainView(Tk):
                                 args=[
                                     "%s/%s" % (self.path.get(), item["text"]),
                                     item["text"], (nfo.atime, nfo.mtime),
-                                    isFile
+                                    isFile,
+                                    destination
                                 ]
                             )
                         else:
@@ -614,7 +626,7 @@ class MainView(Tk):
                                 self.download_worker,
                                 args=[
                                     self.path.get(), item["text"],
-                                    (ts, ts), isFile
+                                    (ts, ts), isFile, destination
                                 ]
                             )
                         else:
@@ -669,7 +681,7 @@ class MainView(Tk):
             self.mode, self.path.get(), self.fill
         ])
 
-    def delete(self):
+    def delete(self, event=None):
         def worker_(connection, mode, path_, enc, tree):
             def do_recursive(path):
                 if mode == "SFTP":
@@ -732,6 +744,8 @@ class MainView(Tk):
                     )
                     if yesno:
                         for i in idx:
+                            if tree.item(i, "text") in ["..", "."]:
+                                continue
                             if S_ISDIR(int(tree.item(i, "values")[-2])) == 0:
                                 connection.unlink(
                                     "/".join([path_.get(),
@@ -750,6 +764,8 @@ class MainView(Tk):
                     )
                     if yesno:
                         for i in idx:
+                            if tree.item(i, "text") in ["..", "."]:
+                                continue
                             if tree.item(i, "values")[-2] == "True":
                                 do_recursive("/".join([path_.get(),
                                                        tree.item(i, "text")]))
@@ -764,10 +780,12 @@ class MainView(Tk):
             self.mode, self.path, self.enc, self.tree
         ])
 
-    def rename(self):
+    def rename(self, event=None):
         def worker_(connection, mode, path, tree):
             idx = tree.selection()
             if len(idx) > 0:
+                if tree.item(idx[0], "text") in ["..", "."]:
+                    return
                 a = AskString(self, "Rename",
                               "Enter new name for %s:" % tree.item(idx[0], "text"),
                               initial_value=tree.item(idx[0], "text"))
