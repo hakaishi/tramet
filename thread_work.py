@@ -58,7 +58,6 @@ class ThreadWork:
                         print(e)
                 else:
                     func(conn)
-                self.q.task_done()
             else:
                 sleep(0.3)
 

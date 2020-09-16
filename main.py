@@ -153,7 +153,12 @@ class MainView(Tk):
 
         self.ctx = None
 
-        Sizegrip(self).grid(row=2, column=0, sticky=E)
+        footer = Frame(self)
+        self.progress = Progressbar(footer, mode="determinate")
+        Sizegrip(footer).pack(side=RIGHT)
+        self.progress.pack(fill=X, expand=True, side=RIGHT)
+
+        footer.grid(row=2, column=0, sticky=EW)
 
         if len(self.conf["profiles"].keys()) > 0:
             c = self.conf.get("current_profile", "")
@@ -260,16 +265,19 @@ class MainView(Tk):
                                 with open(join(destination, file), "wb+") as f:
                                     size = 0
                                     while True:
-                                        siz, tbuff = res[0].read()
+                                        siz, tbuff = res[0].read(1024*10)
                                         if siz < 0:
                                             print("error code:", siz)
                                             res[0].close()
                                             break
                                         size += siz
                                         if size > res[1].st_size:
-                                            f.write(tbuff[:(size - res[1].st_size)])
+                                            sz = size - res[1].st_size
+                                            f.write(tbuff[:sz])
+                                            self.progress.step(sz)
                                         else:
                                             f.write(tbuff)
+                                            self.progress.step(siz)
                                         if size >= res[1].st_size:
                                             res[0].close()
                                             break
@@ -283,8 +291,11 @@ class MainView(Tk):
 
                     else:
                         try:
+                            def handleDownload(block, fi):
+                                fi.write(block)
+                                self.progress.step(len(block))
                             with open(join(destination, file), "wb+") as f:
-                                conn.retrbinary("RETR %s" % join(src, file), f.write)
+                                conn.retrbinary("RETR %s" % join(src, file), lambda blk: handleDownload(blk, f))
                             utime(join(destination, file), ts)
                         except error_perm:
                             messagebox.showerror("Insufficient Permissions",
@@ -401,9 +412,12 @@ class MainView(Tk):
                             recurse(join(src, file, inf[0]), inf[1])
 
         self.is_busy = False
-        messagebox.showinfo("DONE", "Download done!", parent=self)
+        self.worker.q.task_done()
+        if self.worker.q.empty():
+            messagebox.showinfo("DONE", "Download done!", parent=self)
 
     def cwd_dnl(self, event=None, ignore_item=False):
+        self.progress.configure(value=0)
         if not self.connected:
             messagebox.showinfo("Connection Lost", "Please reconnect first.")
 
@@ -449,6 +463,7 @@ class MainView(Tk):
                 if not self.is_busy and item_name:
                     destination = filedialog.askdirectory(
                         title="Choose download destination")
+                    self.progress.configure(maximum=inf.filesize)
                     self.worker.add_task(
                         self.download_worker,
                         args=[
@@ -456,7 +471,7 @@ class MainView(Tk):
                             item_name,
                             (inf.atime, inf.mtime),
                             True,
-                            destination
+                            destination,
                         ]
                     )
                 else:
@@ -470,11 +485,12 @@ class MainView(Tk):
                     self.fill(self.connection)
                     fd = True
                 except error_perm:
-                    messagebox.showwarning(
-                        "Permission Denied",
-                        "You don't have permission to see the content of this folder."
-                    )
-                    return
+                    # messagebox.showwarning(
+                    #     "Permission Denied",
+                    #     "You don't have permission to see the content of this folder."
+                    # )
+                    # return
+                    pass
                 except Exception:
                     pass
             if not fd:
@@ -483,8 +499,9 @@ class MainView(Tk):
                     "%Y-%m-%d %H:%M:%S").timestamp()
                 destination = filedialog.askdirectory(
                     title="Choose download destination")
+                self.progress.configure(maximum=self.tree.item(item, "values")[2])
                 self.worker.add_task(
-                    self.download_worker, args=[item_name, item_name, (ts, ts), True, destination]
+                    self.download_worker, args=[self.path.get(), item_name, (ts, ts), True, destination]
                 )
 
     def fill(self, conn):
@@ -596,11 +613,14 @@ class MainView(Tk):
             def download():
                 destination = filedialog.askdirectory(
                     title="Choose download destination")
+                all_size = 0
+                self.progress.configure(value=0)
                 for s in sel:
                     item = self.tree.item(s)
                     isFile = item["values"][0][0] == "-"
                     if self.mode == "SFTP":
                         nfo = self.connection.stat("%s/%s" % (self.path.get(), item["text"]))
+                        all_size += nfo.filesize
                         if not self.is_busy:
                             self.worker.add_task(
                                 self.download_worker,
@@ -617,6 +637,9 @@ class MainView(Tk):
                     else:
                         ts = ()
                         tim = item["values"][1]
+                        sz = item["values"][2]
+                        if sz:
+                            all_size += sz
                         if tim:
                             ts = datetime.strptime(
                                 tim,
@@ -632,6 +655,7 @@ class MainView(Tk):
                         else:
                             messagebox.showinfo("busy",
                                                 "A download is already running. Try again later.")
+                self.progress.configure(maximum=all_size)
 
             self.ctx.add_command(
                 label="Download Selected",
@@ -676,6 +700,8 @@ class MainView(Tk):
                         print(e)
             if name.strip():
                 fill(connection)
+
+            self.worker.q.task_done()
 
         self.worker.add_task(worker_, args=[
             self.mode, self.path.get(), self.fill
@@ -776,6 +802,8 @@ class MainView(Tk):
                                 )
                             tree.delete(i)
 
+            self.worker.q.task_done()
+
         self.worker.add_task(worker_, args=[
             self.mode, self.path, self.enc, self.tree
         ])
@@ -810,6 +838,8 @@ class MainView(Tk):
                             tree.item(idx[0], text=name)
                         except Exception as e:
                             print(e)
+
+            self.worker.q.task_done()
 
         self.worker.add_task(worker_, args=[
             self.mode, self.path.get(), self.tree
@@ -876,7 +906,10 @@ class MainView(Tk):
                             print(e)
             rt.fill(conn)
             rt.is_busy = False
-            messagebox.showinfo("DONE", "Upload done!", parent=rt)
+
+            self.worker.q.task_done()
+            if self.worker.q.empty():
+                messagebox.showinfo("DONE", "Upload done!", parent=rt)
 
         self.worker.add_task(worker_, args=[self, ])
 
@@ -1018,7 +1051,10 @@ class MainView(Tk):
 
                 self.fill(conn)
                 rt.is_busy = False
-                messagebox.showinfo("DONE", "Upload done!", parent=rt)
+
+                self.worker.q.task_done()
+                if self.worker.q.empty():
+                    messagebox.showinfo("DONE", "Upload done!", parent=rt)
 
         self.worker.add_task(worker_, args=[self, ])
 
