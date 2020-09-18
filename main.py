@@ -3,7 +3,7 @@
 
 from sys import exit
 from os import listdir, makedirs, utime, stat, remove
-from os.path import exists, join, basename, getmtime, getatime, isdir, normpath, \
+from os.path import exists, join, basename, getmtime, getatime, getsize, isdir, normpath, \
     dirname, abspath, isfile, islink
 from stat import S_ISDIR, S_ISLNK, S_ISREG, filemode
 from datetime import datetime
@@ -54,6 +54,8 @@ class MainView(Tk):
         self.keep_alive_timer_running = False
         self.is_busy = False
         self.found = -1
+        self.save_last_path = BooleanVar()
+        self.save_last_path.set(False)
 
         self.menubar = Menu(self)
         self.configure(menu=self.menubar)
@@ -63,6 +65,9 @@ class MainView(Tk):
         self.filemenu.add_command(label="Profiles", command=self.open_profiles)
         self.filemenu.add_command(label="Exit", command=self.destroy)
         self.menubar.add_command(label="Search", command=self.find)
+        self.optionbar = Menu(self.menubar, tearoff=False)
+        self.optionbar.add_checkbutton(label="Save last Path", variable=self.save_last_path)
+        self.menubar.add_cascade(label="Options", menu=self.optionbar)
 
         self.grid_rowconfigure(0, weight=0)
         self.grid_rowconfigure(1, weight=1)
@@ -229,6 +234,7 @@ class MainView(Tk):
             self.mode = prof["mode"]
             self.modeL["text"] = prof["mode"]
             self.password = prof["password"]
+            self.save_last_path.set(prof.get("save_last_path", False))
 
     def open_profiles(self):
         if not self.profiles_open:
@@ -357,6 +363,28 @@ class MainView(Tk):
                         #         src, encoding=self.enc
                         # ):
                         #     recurse(src, obj)
+                        size_all = {"size": 0}
+                        self.progress.configure(mode="indeterminate")
+                        self.progress.start()
+
+                        def recrse(pth, obj, attr, rslt):
+                            if S_ISDIR(attr.permissions) != 0:
+                                with conn.opendir(join(pth, obj)) as dirh_:
+                                    for size_, buf_, attrs_ in dirh_.readdir():
+                                        o_ = buf_.decode(self.enc)
+                                        if o_ not in [".", ".."]:
+                                            recrse(join(pth, obj), o_, attrs_, rslt)
+                            elif S_ISREG(attrs.permissions) != 0:
+                                rslt["size"] += attrs.filesize
+
+                        with conn.opendir(src) as dirh:
+                            for size, buf, attrs in dirh.readdir():
+                                o = buf.decode(self.enc)
+                                if o not in [".", ".."]:
+                                    recrse(src, o, attrs, size_all)
+                        self.progress.stop()
+                        self.progress.configure(mode="determinate", maximum=size_all["size"])
+
                         with conn.opendir(src) as dirh:
                             for size, buf, attrs in dirh.readdir():
                                 o = buf.decode(self.enc)
@@ -365,7 +393,7 @@ class MainView(Tk):
                         print("done")
                     else:  # FTP
                         def recurse(path, fi):
-                            print(path, fi)
+                            # print(path, fi)
                             if fi[0] == "d":
                                 makedirs(join(destination, file, basename(path)), exist_ok=True)
                                 data = {}
@@ -382,8 +410,8 @@ class MainView(Tk):
                                 for x in data.items():
                                     recurse(join(path, x[0]), x[1])
                             elif fi[0] == "-":
-                                print("local", join(destination, file, basename(path)))
-                                print("remote", path)
+                                # print("local", join(destination, file, basename(path)))
+                                # print("remote", path)
                                 with open(join(destination, file, basename(path)), "wb+") as fil:
                                     conn.retrbinary("RETR %s" % path, fil.write)
                                 try:
@@ -396,6 +424,46 @@ class MainView(Tk):
                                     utime(join(destination, file, basename(path)), (dt.timestamp(), dt.timestamp()))
                                 except Exception as e:
                                     print(e, path)
+
+                        size_all = {"size": 0}
+                        self.progress.configure(mode="indeterminate")
+                        self.progress.start()
+
+                        def recrse(pth, finf, rslt):
+                            if finf[0] == "d":
+                                makedirs(join(destination, file, basename(pth)), exist_ok=True)
+                                data = {}
+                                dinfo = []
+                                conn.dir(pth, dinfo.append)
+                                dfiles = conn.nlst(pth)
+                                for f_ in sorted(dfiles, key=lambda x: (x.lower(), len(x))):
+                                    fin = basename(f_)
+                                    for ifo in sorted(dinfo, key=lambda x: (x.lower(), len(x))):
+                                        if fin == ifo[-len(fin):]:
+                                            data[fin] = ifo[:-len(fin)]
+                                            dinfo.remove(ifo)
+                                            break
+                                for x in data.items():
+                                    recrse(join(pth, x[0]), x[1], rslt)
+                            elif finf[0] == "-":
+                                rslt["size"] += int(finf.split()[4])
+
+                        dat = {}
+                        info = []
+                        conn.dir(join(src, file), info.append)
+                        files = conn.nlst(join(src, file))
+                        for f in sorted(files, key=lambda x: (x.lower(), len(x))):
+                            fn = basename(f)
+                            for i in sorted(info, key=lambda x: (x.lower(), len(x))):
+                                if fn == i[-len(fn):]:
+                                    dat[fn] = i[:-len(fn)]
+                                    info.remove(i)
+                                    break
+                        for inf in dat.items():
+                            recrse(join(src, file, inf[0]), inf[1])
+
+                        self.progress.stop()
+                        self.progress.configure(mode="determinate", maximum=size_all["size"])
 
                         dat = {}
                         info = []
@@ -412,9 +480,10 @@ class MainView(Tk):
                             recurse(join(src, file, inf[0]), inf[1])
 
         self.is_busy = False
-        self.worker.q.task_done()
-        if self.worker.q.empty():
-            messagebox.showinfo("DONE", "Download done!", parent=self)
+        if self.worker:
+            self.worker.q.task_done()
+            if self.worker.q.empty():
+                messagebox.showinfo("DONE", "Download done!", parent=self)
 
     def cwd_dnl(self, event=None, ignore_item=False):
         self.progress.configure(value=0)
@@ -701,7 +770,8 @@ class MainView(Tk):
             if name.strip():
                 fill(connection)
 
-            self.worker.q.task_done()
+            if self.worker:
+                self.worker.q.task_done()
 
         self.worker.add_task(worker_, args=[
             self.mode, self.path.get(), self.fill
@@ -802,7 +872,8 @@ class MainView(Tk):
                                 )
                             tree.delete(i)
 
-            self.worker.q.task_done()
+            if self.worker:
+                self.worker.q.task_done()
 
         self.worker.add_task(worker_, args=[
             self.mode, self.path, self.enc, self.tree
@@ -839,7 +910,8 @@ class MainView(Tk):
                         except Exception as e:
                             print(e)
 
-            self.worker.q.task_done()
+            if self.worker:
+                self.worker.q.task_done()
 
         self.worker.add_task(worker_, args=[
             self.mode, self.path.get(), self.tree
@@ -847,14 +919,22 @@ class MainView(Tk):
 
     def upload_file(self):
         def worker_(conn, rt):
+            size_all = 0
             files = filedialog.askopenfilenames(title="Choose files to upload",
                                                 parent=rt)
-
             a = AskString(self, "Choose destination",
                           "Choose upload destination",
                           initial_value=rt.path.get())
             self.wait_window(a)
             dest = a.result
+
+            if files:
+                self.progress.configure(mode="indeterminate", value=0)
+                self.progress.start()
+                for f in files:
+                    size_all += getsize(f)
+                self.progress.stop()
+                self.progress.configure(mode="determinate", maximum=size_all)
 
             if files and len(files) > 0 and dest:
                 if rt.mode == "SFTP":
@@ -874,8 +954,13 @@ class MainView(Tk):
                         f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE
                         with open(file, 'rb') as lofi:
                             with conn.open("%s/%s" % (dest.strip(), basename(file)), f_flags, mode) as remfi:
-                                for data in lofi:
-                                    remfi.write(data)
+                                while True:
+                                    data = lofi.read(10*1024*1024)
+                                    if not data:
+                                        break
+                                    else:
+                                        _, sz = remfi.write(data)
+                                        self.progress.step(sz)
                                 attr = SFTPAttributes(fifo)
                                 # attr.filesize = fifo.st_size
                                 # print(file, datetime.fromtimestamp(fifo.st_mtime))
@@ -892,9 +977,11 @@ class MainView(Tk):
                     # conn.cwd(dest)
                     for file in files:
                         try:
+                            def handl(blk):
+                                self.progress.step(len(blk))
                             with open(file, "rb") as f:
                                 conn.storbinary(
-                                    "STOR %s" % join(dest, basename(file)), f
+                                    "STOR %s" % join(dest, basename(file)), f, callback=handl
                                 )
                             conn.voidcmd("MFMT %s %s" % (
                                 datetime.fromtimestamp(
@@ -907,14 +994,16 @@ class MainView(Tk):
             rt.fill(conn)
             rt.is_busy = False
 
-            self.worker.q.task_done()
-            if self.worker.q.empty():
-                messagebox.showinfo("DONE", "Upload done!", parent=rt)
+            if self.worker:
+                self.worker.q.task_done()
+                if self.worker.q.empty():
+                    messagebox.showinfo("DONE", "Upload done!", parent=rt)
 
         self.worker.add_task(worker_, args=[self, ])
 
     def upload_folder(self):
         def worker_(conn, rt):
+            size_all = {"size": 0}
             folder = filedialog.askdirectory(
                 title="Choose folder to upload", parent=rt
             )
@@ -924,6 +1013,22 @@ class MainView(Tk):
                           initial_value=rt.path.get())
             self.wait_window(a)
             dest = a.result
+
+            if folder:
+                self.progress.configure(mode="indeterminate", value=0)
+                self.progress.start()
+
+                def recrse(pth, rslt):
+                    for f in listdir(pth):
+                        fp = join(pth, f)
+                        if isfile(fp) and not islink(fp):
+                            rslt["size"] += getsize(fp)
+                        elif isdir(fp) and not islink(fp):
+                            recrse(fp, rslt)
+                recrse(folder, size_all)
+                self.progress.stop()
+                self.progress.configure(mode="determinate", maximum=size_all["size"])
+                print(size_all)
 
             def recurse(destination, target):
                 if rt.mode == "SFTP":
@@ -955,6 +1060,7 @@ class MainView(Tk):
                                     f_flags, mode) as remfi:
                                 for data in lofi:
                                     remfi.write(data)
+                                    self.progress.step(len(data))
                                 attr = SFTPAttributes(fifo)
                                 # attr.filesize = fifo.st_size
                                 # print(file, datetime.fromtimestamp(fifo.st_mtime))
@@ -981,10 +1087,12 @@ class MainView(Tk):
                                     "%s/%s" % (target, basename(f)))
                     elif isfile(target):
                         try:
+                            def handl(blk):
+                                self.progress.step(len(blk))
                             with open(target, "rb") as f:
                                 conn.storbinary(
                                     "STOR %s/%s" % (destination, basename(target)),
-                                    f
+                                    f, callback=handl
                                 )
                             conn.voidcmd(
                                 "MDTM %s %s" % (
@@ -998,7 +1106,6 @@ class MainView(Tk):
                             print(e)
 
             if folder and dest:
-                conn.cwd(rt.path.get())
                 rt.is_busy = True
                 if rt.mode == "SFTP":
                     try:
@@ -1026,6 +1133,7 @@ class MainView(Tk):
                         except Exception as e:
                             pass
                 else:
+                    conn.cwd(rt.path.get())
                     try:
                         p = rt.path.get()
                         tmp = ""
@@ -1052,9 +1160,10 @@ class MainView(Tk):
                 self.fill(conn)
                 rt.is_busy = False
 
-                self.worker.q.task_done()
-                if self.worker.q.empty():
-                    messagebox.showinfo("DONE", "Upload done!", parent=rt)
+                if self.worker:
+                    self.worker.q.task_done()
+                    if self.worker.q.empty():
+                        messagebox.showinfo("DONE", "Upload done!", parent=rt)
 
         self.worker.add_task(worker_, args=[self, ])
 
@@ -1127,6 +1236,16 @@ class MainView(Tk):
             else:
                 try:
                     self.connection.session.disconnect()
+                    self.worker.quit()
+                    self.progress.configure(value=0)
+                    self.worker = None
+
+                    prof = self.conf["profiles"][self.profileCB.get()]
+                    if self.save_last_path.get():
+                        prof["save_last_path"] = True
+                        prof["path"] = self.path.get()
+                    else:
+                        prof["save_last_path"] = False
                 except Exception as e:
                     pass
                 finally:
@@ -1153,6 +1272,16 @@ class MainView(Tk):
             else:
                 try:
                     self.connection.close()
+                    self.worker.quit()
+                    self.progress.configure(value=0)
+                    self.worker = None
+
+                    prof = self.conf["profiles"][self.profileCB.get()]
+                    if self.save_last_path.get():
+                        prof["save_last_path"] = True
+                        prof["path"] = self.path.get()
+                    else:
+                        prof["save_last_path"] = False
                 except Exception as e:
                     pass
                 finally:
@@ -1179,7 +1308,7 @@ class MainView(Tk):
         self.conf["current_profile"] = self.profileCB.get()
         Config.save_file(self.conf)
         if self.worker:
-            self.worker.stop()
+            self.worker.quit()
         super().destroy()
 
 

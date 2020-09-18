@@ -45,7 +45,9 @@ class AskString(Toplevel):
         self.focus_set()
         self.grab_set()
         self.entry.focus()
+        self.update_idletasks()
         self.update()
+        self.lift()
 
         if root and root.winfo_viewable():
             self.transient(root)
