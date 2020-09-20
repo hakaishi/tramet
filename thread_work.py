@@ -31,6 +31,8 @@ class ThreadWork:
     def _do_work(self):
         while not self._quitting:
             func, data = self.q.get(block=True)  # wait until something is available
+            if func is None:
+                return
 
             if self._mode == "SFTP":
                 sock = socket(AF_INET, SOCK_STREAM)
@@ -63,6 +65,7 @@ class ThreadWork:
     def quit(self):
         self._quitting = True
         self.q.queue.clear()
+        self.add_task(None)  # stop loop
         if self._connection:
             if self._mode == "SFTP":
                 self._connection.session.disconnect()
@@ -70,4 +73,9 @@ class ThreadWork:
                 self._connection.quit()
 
 
-__all__ = ['ThreadWork', ]
+def singleShot(func, args=[]):
+    t = Thread(target=func, args=args, daemon=False)
+    t.start()
+
+
+__all__ = ['ThreadWork', 'singleShot']

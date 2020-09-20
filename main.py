@@ -22,7 +22,7 @@ from ssh2.exceptions import *
 from ftplib import FTP, error_perm
 
 from Config import Config
-from thread_work import ThreadWork
+from thread_work import *
 
 
 class MainView(Tk):
@@ -1186,7 +1186,7 @@ class MainView(Tk):
         self.worker.add_task(worker_, args=[self, ])
 
     def keep_alive(self):
-        if not self.keep_alive_timer_running:
+        if not self.keep_alive_timer_running and self.connected:
             t = Timer(10, self.keep_alive_worker)
             t.setDaemon(True)
             t.start()
@@ -1216,111 +1216,112 @@ class MainView(Tk):
             self.keep_alive()
 
     def connect(self):
-        connection = None
+        def worker(self):
+            connection = None
 
-        if self.profileCB.get() == "please select a profile":
-            text = "Please select a profile to connect to."
-            if len(self.profileCB["values"]) == 0:
-                text = "Please create a profile first."
-            messagebox.showinfo("No connection data", text)
+            if self.profileCB.get() == "please select a profile":
+                text = "Please select a profile to connect to."
+                if len(self.profileCB["values"]) == 0:
+                    text = "Please create a profile first."
+                messagebox.showinfo("No connection data", text)
 
-        if self.mode == "SFTP":
-            import os
-            from ssh2.session import LIBSSH2_HOSTKEY_HASH_SHA1, \
-                LIBSSH2_HOSTKEY_TYPE_RSA
-            from ssh2.knownhost import LIBSSH2_KNOWNHOST_TYPE_PLAIN, \
-                LIBSSH2_KNOWNHOST_KEYENC_RAW, LIBSSH2_KNOWNHOST_KEY_SSHRSA, LIBSSH2_KNOWNHOST_KEY_SSHDSS
-            if not self.connected:
-                try:
-                    sock = socket(AF_INET, SOCK_STREAM)
-                    sock.settimeout(10)
-                    sock.connect((self.connectionCB.get(), self.port))
-                    cli = Session()
-                    cli.set_timeout(15000)
-                    cli.handshake(sock)
+            if self.mode == "SFTP":
+                import os
+                from ssh2.session import LIBSSH2_HOSTKEY_HASH_SHA1, \
+                    LIBSSH2_HOSTKEY_TYPE_RSA
+                from ssh2.knownhost import LIBSSH2_KNOWNHOST_TYPE_PLAIN, \
+                    LIBSSH2_KNOWNHOST_KEYENC_RAW, LIBSSH2_KNOWNHOST_KEY_SSHRSA, LIBSSH2_KNOWNHOST_KEY_SSHDSS
+                if not self.connected:
+                    try:
+                        sock = socket(AF_INET, SOCK_STREAM)
+                        sock.settimeout(10)
+                        sock.connect((self.connectionCB.get(), self.port))
+                        cli = Session()
+                        cli.set_timeout(15000)
+                        cli.handshake(sock)
 
-                    cli.userauth_password(self.nameE.get(), self.password)
-                    sftp = cli.sftp_init()
+                        cli.userauth_password(self.nameE.get(), self.password)
+                        sftp = cli.sftp_init()
 
-                    cli.set_timeout(0)
+                        cli.set_timeout(0)
 
-                    connection = sftp
-                except Timeout:
-                    messagebox.showerror("Connection Error", "Connection timeout on login.")
-                except Exception as e:
-                    messagebox.showerror("Connection Error", str(e))
-                    return
+                        connection = sftp
+                    except Timeout:
+                        messagebox.showerror("Connection Error", "Connection timeout on login.")
+                    except Exception as e:
+                        messagebox.showerror("Connection Error", str(e))
+                        return
 
-            else:
-                try:
-                    self.connection.session.disconnect()
-                    self.worker.quit()
-                    self.progress.configure(value=0)
-                    self.worker = None
+                else:
+                    try:
+                        self.connection.session.disconnect()
+                        self.worker.quit()
+                        self.progress.configure(value=0)
+                        self.worker = None
 
-                    prof = self.conf["profiles"][self.profileCB.get()]
-                    if self.save_last_path.get():
-                        prof["save_last_path"] = True
-                        prof["path"] = self.path.get()
-                    else:
-                        prof["save_last_path"] = False
-                except Exception as e:
-                    pass
-                finally:
-                    self.connected = False
+                        prof = self.conf["profiles"][self.profileCB.get()]
+                        if self.save_last_path.get():
+                            prof["save_last_path"] = True
+                            prof["path"] = self.path.get()
+                        else:
+                            prof["save_last_path"] = False
+                    except Exception as e:
+                        pass
+                    finally:
+                        self.connected = False
 
-        else:  # FTP
-            if not self.connected:
-                try:
-                    ftp = FTP()
-                    ftp.encoding = self.enc
-                    ftp.connect(self.connectionCB.get(), self.port, 10)
-                    ftp.login(self.nameE.get(), self.password)
+            else:  # FTP
+                if not self.connected:
+                    try:
+                        ftp = FTP()
+                        ftp.encoding = self.enc
+                        ftp.connect(self.connectionCB.get(), self.port, 10)
+                        ftp.login(self.nameE.get(), self.password)
 
-                    connection = ftp
-                except Exception as e:
-                    print(e)
-                    return
+                        connection = ftp
+                    except Exception as e:
+                        print(e)
+                        return
 
-                try:
-                    connection.cwd(self.path.get())
-                except error_perm:
-                    self.connected = False
-                    connection.quit()
-            else:
-                try:
-                    self.connection.close()
-                    self.worker.quit()
-                    self.progress.configure(value=0)
-                    self.worker = None
+                    try:
+                        connection.cwd(self.path.get())
+                    except error_perm:
+                        self.connected = False
+                        connection.quit()
+                else:
+                    try:
+                        self.connection.close()
+                        self.worker.quit()
+                        self.progress.configure(value=0)
+                        self.worker = None
 
-                    prof = self.conf["profiles"][self.profileCB.get()]
-                    if self.save_last_path.get():
-                        prof["save_last_path"] = True
-                        prof["path"] = self.path.get()
-                    else:
-                        prof["save_last_path"] = False
-                except Exception as e:
-                    pass
-                finally:
-                    self.connected = False
+                        prof = self.conf["profiles"][self.profileCB.get()]
+                        if self.save_last_path.get():
+                            prof["save_last_path"] = True
+                            prof["path"] = self.path.get()
+                        else:
+                            prof["save_last_path"] = False
+                    except Exception as e:
+                        pass
+                    finally:
+                        self.connected = False
 
-        self.connection = connection
-        if connection:
-            self.fill(connection)
-            self.connected = True
-            self.worker = ThreadWork(
-                self.mode,
-                self.connectionCB.get(),
-                self.port,
-                self.nameE.get(),
-                self.password,
-                self.enc
-            )
+            self.connection = connection
+            if connection:
+                self.fill(connection)
+                self.connected = True
+                self.worker = ThreadWork(
+                    self.mode,
+                    self.connectionCB.get(),
+                    self.port,
+                    self.nameE.get(),
+                    self.password,
+                    self.enc
+                )
 
-        self.connect_btn["text"] = "Connect" if not self.connected else "Disconnect"
+            self.connect_btn["text"] = "Connect" if not self.connected else "Disconnect"
 
-        return connection
+        singleShot(worker, [self, ])
 
     def destroy(self):
         self.conf["current_profile"] = self.profileCB.get()
