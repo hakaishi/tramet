@@ -7,7 +7,6 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 * ssh2-python
 
 ### TODO:
-* put connecting into a separate thread as well
 * File search
 * fix window style for dark themes
 * translations ?
