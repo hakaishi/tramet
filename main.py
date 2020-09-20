@@ -236,6 +236,9 @@ class MainView(Tk):
             self.password = prof["password"]
             self.save_last_path.set(prof.get("save_last_path", False))
 
+            if event and self.connected:
+                self.connect()  # disconnect
+
     def open_profiles(self):
         if not self.profiles_open:
             self.profiles_open = True
@@ -460,7 +463,7 @@ class MainView(Tk):
                                     info.remove(i)
                                     break
                         for inf in dat.items():
-                            recrse(join(src, file, inf[0]), inf[1])
+                            recrse(join(src, file, inf[0]), inf[1], size_all)
 
                         self.progress.stop()
                         self.progress.configure(mode="determinate", maximum=size_all["size"])
@@ -524,7 +527,13 @@ class MainView(Tk):
                 channel.wait_closed()
                 p = channel.read()[1].decode(self.enc).strip()
                 self.path.set(normpath(p))
-            inf = self.connection.stat(p)
+            try:
+                inf = self.connection.stat(p)
+            except SFTPProtocolError:
+                messagebox.showerror("Path Error",
+                                     "No such path or no permission to see this path.",
+                                     parent=self)
+                return
             if S_ISDIR(inf.permissions) != 0:
                 self.path.set(normpath(p))
                 self.fill(self.connection)
@@ -532,6 +541,8 @@ class MainView(Tk):
                 if not self.is_busy and item_name:
                     destination = filedialog.askdirectory(
                         title="Choose download destination")
+                    if not destination:
+                        return
                     self.progress.configure(maximum=inf.filesize)
                     self.worker.add_task(
                         self.download_worker,
@@ -554,20 +565,25 @@ class MainView(Tk):
                     self.fill(self.connection)
                     fd = True
                 except error_perm:
-                    # messagebox.showwarning(
-                    #     "Permission Denied",
-                    #     "You don't have permission to see the content of this folder."
-                    # )
-                    # return
-                    pass
+                    if not item or self.tree.item(item, "values")[0][0] != "-":
+                        messagebox.showerror("Path Error",
+                                             "No such path or no permission to see this path.",
+                                             parent=self)
+                        return
                 except Exception:
-                    pass
+                    if not item or self.tree.item(item, "values")[0][0] != "-":
+                        messagebox.showerror("Path Error",
+                                             "No such path or no permission to see this path.",
+                                             parent=self)
+                        return
             if not fd:
                 ts = datetime.strptime(
                     self.tree.item(item, "values")[1],
                     "%Y-%m-%d %H:%M:%S").timestamp()
                 destination = filedialog.askdirectory(
                     title="Choose download destination")
+                if not destination:
+                    return
                 self.progress.configure(maximum=self.tree.item(item, "values")[2])
                 self.worker.add_task(
                     self.download_worker, args=[self.path.get(), item_name, (ts, ts), True, destination]
@@ -682,6 +698,8 @@ class MainView(Tk):
             def download():
                 destination = filedialog.askdirectory(
                     title="Choose download destination")
+                if not destination:
+                    return
                 all_size = 0
                 self.progress.configure(value=0)
                 for s in sel:

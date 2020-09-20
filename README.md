@@ -11,7 +11,6 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 * File search
 * fix window style for dark themes
 * translations ?
-* fix not able to cancel download
 
 ### Known Problems:
 1. No efficient way to display user- and group names when using SSH
