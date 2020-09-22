@@ -29,9 +29,23 @@ class MainView(Tk):
     def __init__(self):
         super().__init__()
 
+        style = Style(self)
+
         self.f_img = PhotoImage(file="file.png")
         self.d_img = PhotoImage(file="folder.png")
         self.l_img = PhotoImage(file="link.png")
+
+        self.tk_setPalette(activeBackground="azure", activeForeground="black", background="snow2",
+                           disabledForeground="gray", foreground="black", hightlightBackground="cyan",
+                           hightlightColor="black", insertBackground="white", selectColor="blue",
+                           selectBackground="blue", selectForeground="white", troughColor="green")
+
+        style.configure(".", activeBackground="azure", activeForeground="black", background="snow2",
+                        disabledForeground="gray", foreground="black", hightlightBackground="cyan",
+                        hightlightColor="black", insertBackground="white", selectColor="blue",
+                        selectBackground="blue", selectForeground="white", troughColor="green",
+                        fieldbackground="white smoke")
+        style.configure("Treeview", background="white smoke")
 
         self.geometry("500x400")
         self.minsize(500, 400)

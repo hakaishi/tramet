@@ -8,7 +8,6 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 
 ### TODO:
 * File search
-* fix window style for dark themes
 * translations ?
 
 ### Known Problems:

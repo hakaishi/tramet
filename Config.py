@@ -39,7 +39,7 @@ class Config(Toplevel):
         scrollbar = Scrollbar(list_frame)
         scrollbar.pack(fill=Y, side=RIGHT)
 
-        self.list = Listbox(list_frame, yscrollcommand=scrollbar.set, selectmode="single")
+        self.list = Listbox(list_frame, yscrollcommand=scrollbar.set, selectmode="single", background="white smoke")
         scrollbar.config(command=self.list.yview)
         self.list.pack(fill=BOTH, expand=True)
         # self.list.bind("<<ListboxSelect>>", self.selection_changed)
@@ -214,7 +214,7 @@ class Editor(Toplevel):
         self.encoding.current(0)
 
         Label(frame, text="Mode:").grid(row=6, column=0, sticky=W)
-        self.mode = Combobox(frame, values=("SFTP", "FTP"))
+        self.mode = Combobox(frame, values=("SFTP", "FTP"), state="readonly")
         self.mode.grid(row=6, column=1, sticky=EW)
         self.mode.current(0)
 
