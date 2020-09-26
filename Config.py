@@ -140,13 +140,15 @@ class Config(Toplevel):
             print(e)
 
     def save(self):
+        if self.root.connected:
+            self.root.connect()  # disconnect
         self.save_file(self.conf)
         self.root.conf = self.conf
         profs = list(self.conf["profiles"].keys())
         self.root.profileCB["values"] = profs
         if self.root.profileCB.get() == "please create a profile first" and len(profs) > 0:
             self.root.profileCB.current(0)
-        self.root.set_profile()
+        self.root.set_profile(True)
 
         self.destroy()
 

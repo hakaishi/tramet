@@ -11,9 +11,8 @@ from ftplib import FTP
 
 
 class ThreadWork:
-    _quitting = False
-
     def __init__(self, mode, host, port, name, password, enc):
+        self._quitting = False
         self._mode = mode
         self._host = host
         self._port = port
@@ -61,6 +60,14 @@ class ThreadWork:
                     print(e)
             else:
                 func(self._connection)
+
+    def stop(self):
+        self.q.queue.clear()
+        if self._connection:
+            if self._mode == "SFTP":
+                self._connection.session.disconnect()
+            else:
+                self._connection.quit()
 
     def quit(self):
         self._quitting = True

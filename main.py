@@ -23,6 +23,8 @@ from ftplib import FTP, error_perm
 
 from Config import Config
 from thread_work import *
+from Search import SearchView
+from ftplisting import ftp_file_list
 
 
 class MainView(Tk):
@@ -47,13 +49,16 @@ class MainView(Tk):
                         fieldbackground="white smoke")
         style.configure("Treeview", background="white smoke")
 
-        self.geometry("500x400")
+        self.geometry("650x500")
         self.minsize(500, 400)
 
         self.wm_title("Tramet")
 
         self.profiles_open = False
         self.config_window = None
+
+        self.search_open = False
+        self.search_window = None
 
         self.conf = Config.load_file()
         self.worker = None
@@ -135,7 +140,7 @@ class MainView(Tk):
         scrollbar = Scrollbar(tree_frame, takefocus=0)
         scrollbar.pack(side=RIGHT, fill=Y)
 
-        self.tree = Treeview(tree_frame, columns=("mode", "date", "size"),
+        self.tree = Treeview(tree_frame, columns=("mode", "date", "size", "uid", "gid"),
                              selectmode="extended", yscrollcommand=scrollbar.set)
         self.tree.heading("#0", text="name")
         self.tree.column("#0", minwidth=100, width=100, stretch=True)
@@ -145,6 +150,10 @@ class MainView(Tk):
         self.tree.column("date", minwidth=150, width=150, stretch=False)
         self.tree.heading("size", text="size")
         self.tree.column("size", minwidth=80, width=80, stretch=False)
+        self.tree.heading("uid", text="uid")
+        self.tree.column("uid", minwidth=50, width=60, stretch=False)
+        self.tree.heading("gid", text="gid")
+        self.tree.column("gid", minwidth=50, width=60, stretch=False)
         self.tree.pack(fill=BOTH, expand=True)
         self.tree.bind("<Double-1>", self.cwd_dnl)
         self.tree.bind("<Return>", self.cwd_dnl)
@@ -266,8 +275,13 @@ class MainView(Tk):
             self.ctx.destroy()
             self.ctx = None
 
-    def find(self, event=None):  # todo
-        messagebox.showinfo("Not yet", "Work in progress", parent=self)
+    def find(self, event=None):
+        if not self.search_open:
+            self.search_open = True
+            self.search_window = SearchView(self, self.path.get())
+        else:
+            self.search_window.tkraise(self)
+            self.search_window.focus()
 
     def download_worker(self, conn, src, file, ts, isFile=True, destination=""):
         if isFile:
@@ -412,24 +426,14 @@ class MainView(Tk):
                         def recurse(path, fi):
                             # print(path, fi)
                             if fi[0] == "d":
-                                makedirs(join(destination, file, basename(path)), exist_ok=True)
-                                data = {}
-                                dinfo = []
-                                conn.dir(path, dinfo.append)
-                                dfiles = conn.nlst(path)
-                                for f_ in sorted(dfiles, key=lambda x: (x.lower(), len(x))):
-                                    fin = basename(f_)
-                                    for ifo in sorted(dinfo, key=lambda x: (x.lower(), len(x))):
-                                        if fin == ifo[-len(fin):]:
-                                            data[fin] = ifo[:-len(fin)]
-                                            dinfo.remove(ifo)
-                                            break
+                                makedirs(join(destination, path[len(src)+1:]), exist_ok=True)
+                                data = ftp_file_list(conn, path)
                                 for x in data.items():
                                     recurse(join(path, x[0]), x[1])
                             elif fi[0] == "-":
                                 # print("local", join(destination, file, basename(path)))
                                 # print("remote", path)
-                                with open(join(destination, file, basename(path)), "wb+") as fil:
+                                with open(join(destination, path[len(src)+1:]), "wb+") as fil:
                                     conn.retrbinary("RETR %s" % path, fil.write)
                                 try:
                                     dt = None
@@ -438,7 +442,7 @@ class MainView(Tk):
                                             datetime.now().strftime("%Y") + " ".join(fi.split()[-3:]), "%Y%b %d %H:%M")
                                     else:
                                         dt = datetime.strptime(" ".join(fi.split()[-3:]), "%b %d %Y")
-                                    utime(join(destination, file, basename(path)), (dt.timestamp(), dt.timestamp()))
+                                    utime(join(destination, path[len(src)+1:]), (dt.timestamp(), dt.timestamp()))
                                 except Exception as e:
                                     print(e, path)
 
@@ -448,51 +452,20 @@ class MainView(Tk):
 
                         def recrse(pth, finf, rslt):
                             if finf[0] == "d":
-                                makedirs(join(destination, file, basename(pth)), exist_ok=True)
-                                data = {}
-                                dinfo = []
-                                conn.dir(pth, dinfo.append)
-                                dfiles = conn.nlst(pth)
-                                for f_ in sorted(dfiles, key=lambda x: (x.lower(), len(x))):
-                                    fin = basename(f_)
-                                    for ifo in sorted(dinfo, key=lambda x: (x.lower(), len(x))):
-                                        if fin == ifo[-len(fin):]:
-                                            data[fin] = ifo[:-len(fin)]
-                                            dinfo.remove(ifo)
-                                            break
+                                data = ftp_file_list(conn, pth)
                                 for x in data.items():
                                     recrse(join(pth, x[0]), x[1], rslt)
                             elif finf[0] == "-":
                                 rslt["size"] += int(finf.split()[4])
 
-                        dat = {}
-                        info = []
-                        conn.dir(join(src, file), info.append)
-                        files = conn.nlst(join(src, file))
-                        for f in sorted(files, key=lambda x: (x.lower(), len(x))):
-                            fn = basename(f)
-                            for i in sorted(info, key=lambda x: (x.lower(), len(x))):
-                                if fn == i[-len(fn):]:
-                                    dat[fn] = i[:-len(fn)]
-                                    info.remove(i)
-                                    break
+                        dat = ftp_file_list(conn, join(src, file))
                         for inf in dat.items():
                             recrse(join(src, file, inf[0]), inf[1], size_all)
 
                         self.progress.stop()
                         self.progress.configure(mode="determinate", maximum=size_all["size"])
 
-                        dat = {}
-                        info = []
-                        conn.dir(join(src, file), info.append)
-                        files = conn.nlst(join(src, file))
-                        for f in sorted(files, key=lambda x: (x.lower(), len(x))):
-                            fn = basename(f)
-                            for i in sorted(info, key=lambda x: (x.lower(), len(x))):
-                                if fn == i[-len(fn):]:
-                                    dat[fn] = i[:-len(fn)]
-                                    info.remove(i)
-                                    break
+                        dat = ftp_file_list(conn, join(src, file))
                         for inf in dat.items():
                             recurse(join(src, file, inf[0]), inf[1])
 
@@ -505,7 +478,7 @@ class MainView(Tk):
     def cwd_dnl(self, event=None, ignore_item=False):
         self.progress.configure(value=0)
         if not self.connected:
-            messagebox.showinfo("Connection Lost", "Please reconnect first.")
+            messagebox.showinfo("Connection Lost", "Please reconnect first.", parent=self)
 
         self.selection()
 
@@ -552,6 +525,11 @@ class MainView(Tk):
                 self.path.set(normpath(p))
                 self.fill(self.connection)
             else:
+                if S_ISLNK(self.connection.lstat(p).permissions) != 0:
+                    messagebox.showerror("Not supported",
+                                         "Can't download links yet.",
+                                         parent=self)
+                    return
                 if not self.is_busy and item_name:
                     destination = filedialog.askdirectory(
                         title="Choose download destination")
@@ -569,7 +547,7 @@ class MainView(Tk):
                         ]
                     )
                 else:
-                    messagebox.showinfo("busy", "A download is already running. Try again later.")
+                    messagebox.showinfo("busy", "A download is already running. Try again later.", parent=self)
         elif self.mode == "FTP" and self.connected:
             fd = False
             if item_name == ".." or not item or self.tree.item(item, "values")[0][0] != "-":
@@ -579,13 +557,18 @@ class MainView(Tk):
                     self.fill(self.connection)
                     fd = True
                 except error_perm:
-                    if not item or self.tree.item(item, "values")[0][0] != "-":
+                    if self.tree.item(item, "values")[0][0] == "l":
+                        messagebox.showerror("Not supported",
+                                             "Can't download links yet.",
+                                             parent=self)
+                        return
+                    elif not item or self.tree.item(item, "values")[0][0] not in ["-", ]:
                         messagebox.showerror("Path Error",
                                              "No such path or no permission to see this path.",
                                              parent=self)
                         return
                 except Exception:
-                    if not item or self.tree.item(item, "values")[0][0] != "-":
+                    if not item or self.tree.item(item, "values")[0][0] not in ["-", ]:
                         messagebox.showerror("Path Error",
                                              "No such path or no permission to see this path.",
                                              parent=self)
@@ -635,19 +618,20 @@ class MainView(Tk):
                                     datetime.fromtimestamp(attrs.mtime).strftime(
                                         "%Y-%m-%d %H:%M:%S"
                                     ),
-                                    attrs.filesize, attrs.permissions, attrs.mtime
+                                    attrs.filesize, attrs.uid, attrs.gid, attrs.permissions, attrs.mtime
                                 ),
                                 image=img
                             )
                 except SocketRecvError:
-                    messagebox.showinfo("Lost connection", "The connection was lost.")
+                    messagebox.showinfo("Lost connection", "The connection was lost.", parent=self)
                     self.connected = False
                     self.connection = None
                     return
                 except (PermissionError, SFTPProtocolError, SFTPHandleError) as e:
                     messagebox.showwarning(
                         "Permission Denied",
-                        "You don't have permission to see the content of this folder."
+                        "You don't have permission to see the content of this folder.",
+                        parent=self
                     )
 
             else:  # FTP
@@ -656,29 +640,23 @@ class MainView(Tk):
                 if not self.path.get():
                     self.path.set(conn.pwd())
 
-                dir_res = []
-                conn.dir(dir_res.append)
-                files = conn.nlst()
-                data = {}
-                for file in sorted(files, key=lambda x: (x.lower(), len(x))):
-                    t = basename(file)
-                    for fi in sorted(dir_res, key=lambda x: (x.lower(), len(x))):
-                        if file in fi[-len(t):]:
-                            data[t] = fi[:-len(file)]
-                            dir_res.remove(fi)
-                            break
+                data = ftp_file_list(conn, ".")
 
                 for p in sorted(data.items(), key=lambda x: (x[1][0] == "-", x[0].lower())):
                     d = p[1].split()
                     dt = None
-                    if d[0][0] != "d":
-                        try:
-                            dt = datetime.strptime(
-                                conn.voidcmd("MDTM %s" % p[0]).split()[-1],
-                                "%Y%m%d%H%M%S"
-                            )
-                        except Exception as e:
-                            print(e)
+                    if d[7].isnumeric():
+                        dt = datetime.strptime(f"{d[5]}{d[6]}{d[7]}00:00", "%b%d%Y%H:%M")
+                    else:
+                        dt = datetime.strptime(f"{d[5]}{d[6]}{datetime.now().year}{d[7]}", "%b%d%Y%H:%M")
+                    # if d[0][0] != "d":
+                    #     try:
+                    #         dt = datetime.strptime(
+                    #             conn.voidcmd("MDTM %s" % p[0]).split()[-1],
+                    #             "%Y%m%d%H%M%S"
+                    #         )
+                    #     except Exception as e:
+                    #         print(e)
                     img = ""
                     if d[0][0] == "d":
                         img = self.d_img
@@ -692,8 +670,10 @@ class MainView(Tk):
                             d[0],
                             dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "",
                             d[4],
+                            d[2],
+                            d[3],
                             d[0][0] == "d",
-                            dt.timestamp() if dt else ""
+                            dt.timestamp() if dt else "",
                         ),
                         image=img
                     )
@@ -718,9 +698,14 @@ class MainView(Tk):
                 self.progress.configure(value=0)
                 for s in sel:
                     item = self.tree.item(s)
+                    if item["values"][0][0] == "l":
+                        messagebox.showwarning("Not supported",
+                                               "Can't download links yet. Skipping link.",
+                                               parent=self)
+                        continue
                     isFile = item["values"][0][0] == "-"
                     if self.mode == "SFTP":
-                        nfo = self.connection.stat("%s/%s" % (self.path.get(), item["text"]))
+                        nfo = self.connection.lstat("%s/%s" % (self.path.get(), item["text"]))  # Do not follow links
                         all_size += nfo.filesize
                         if not self.is_busy:
                             self.worker.add_task(
@@ -734,17 +719,21 @@ class MainView(Tk):
                             )
                         else:
                             messagebox.showinfo("busy",
-                                                "A download is already running. Try again later.")
+                                                "A download is already running. Try again later.",
+                                                parent=self)
                     else:
-                        ts = ()
-                        tim = item["values"][1]
+                        ts = None
                         sz = item["values"][2]
                         if sz:
                             all_size += sz
-                        if tim:
-                            ts = datetime.strptime(
-                                tim,
-                                "%Y-%m-%d %H:%M:%S").timestamp()
+                        if item["values"][-2]:
+                            try:
+                                ts = datetime.strptime(
+                                    self.connection.voidcmd("MDTM %s/%s" % (self.path.get(), item["text"])).split()[-1],
+                                    "%Y%m%d%H%M%S"
+                                ).timestamp()
+                            except:
+                                pass
                         if not self.is_busy:
                             self.worker.add_task(
                                 self.download_worker,
@@ -755,7 +744,8 @@ class MainView(Tk):
                             )
                         else:
                             messagebox.showinfo("busy",
-                                                "A download is already running. Try again later.")
+                                                "A download is already running. Try again later.",
+                                                parent=self)
                 self.progress.configure(maximum=all_size)
 
             self.ctx.add_command(
@@ -868,7 +858,8 @@ class MainView(Tk):
                 if len(idx) > 0:
                     yesno = messagebox.askyesno(
                         "Delete Selected",
-                        "Are you sure you want to delete the selected objects?"
+                        "Are you sure you want to delete the selected objects?",
+                        parent=self
                     )
                     if yesno:
                         for i in idx:
@@ -888,7 +879,8 @@ class MainView(Tk):
                 if len(idx) > 0:
                     yesno = messagebox.askyesno(
                         "Delete Selected",
-                        "Are you sure you want to delete the selected objects?"
+                        "Are you sure you want to delete the selected objects?",
+                        parent=self
                     )
                     if yesno:
                         for i in idx:
@@ -1237,7 +1229,7 @@ class MainView(Tk):
                 text = "Please select a profile to connect to."
                 if len(self.profileCB["values"]) == 0:
                     text = "Please create a profile first."
-                messagebox.showinfo("No connection data", text)
+                messagebox.showinfo("No connection data", text, parent=self)
 
             if self.mode == "SFTP":
                 import os
@@ -1261,12 +1253,13 @@ class MainView(Tk):
 
                         connection = sftp
                     except Timeout:
-                        messagebox.showerror("Connection Error", "Connection timeout on login.")
+                        messagebox.showerror("Connection Error", "Connection timeout on login.", parent=self)
                     except Exception as e:
-                        messagebox.showerror("Connection Error", str(e))
+                        messagebox.showerror("Connection Error", str(e), parent=self)
                         return
 
                 else:
+                    self.connected = False
                     try:
                         self.connection.session.disconnect()
                         self.worker.quit()
@@ -1281,8 +1274,6 @@ class MainView(Tk):
                             prof["save_last_path"] = False
                     except Exception as e:
                         pass
-                    finally:
-                        self.connected = False
 
             else:  # FTP
                 if not self.connected:
@@ -1303,6 +1294,7 @@ class MainView(Tk):
                         self.connected = False
                         connection.quit()
                 else:
+                    self.connected = False
                     try:
                         self.connection.close()
                         self.worker.quit()
@@ -1317,8 +1309,6 @@ class MainView(Tk):
                             prof["save_last_path"] = False
                     except Exception as e:
                         pass
-                    finally:
-                        self.connected = False
 
             self.connection = connection
             if connection:
