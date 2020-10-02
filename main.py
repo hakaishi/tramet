@@ -320,13 +320,14 @@ class MainView(Tk):
                 p += self.path.get()
                 p = "/".join(((p if p != "/" else ""), item_name))
 
-            self.connection.cwd_dnl(self, p,
-                                    [
-                                        item_name,
-                                        self.tree.item(item, "values")[0],
-                                        self.tree.item(item, "values")[1],
-                                        self.tree.item(item, "values")[2]
-                                    ], self.update_progress, self.worker_done)
+            if item:
+                self.connection.cwd_dnl(self, p,
+                                        [
+                                            item_name,
+                                            self.tree.item(item, "values")[0],
+                                            self.tree.item(item, "values")[1],
+                                            self.tree.item(item, "values")[2]
+                                        ], self.update_progress, self.worker_done)
         else:
             p = self.path.get()
             self.connection.cwd_dnl(self, p, None, self.update_progress, self.worker_done)
@@ -336,10 +337,10 @@ class MainView(Tk):
         self.tree.delete(*self.tree.get_children())
         for i in res[1]:
             img = ""
-            if i[0] == FOLDER:
-                img = self.d_img
-            elif i[0] == FILE:
+            if i[0] == FILE:
                 img = self.f_img
+            elif i[0] == FOLDER:
+                img = self.d_img
             elif i[0] == LINK:
                 img = self.l_img
 
@@ -351,11 +352,11 @@ class MainView(Tk):
                 image=img
             )
 
-            self.tree.focus_set()
-            if len(self.tree.get_children("")) > 0:
-                itm = self.tree.get_children("")[0]
-                self.tree.see(itm)
-                self.tree.focus(itm)
+        self.tree.focus_set()
+        if len(self.tree.get_children("")) > 0:
+            itm = self.tree.get_children("")[0]
+            self.tree.see(itm)
+            self.tree.focus(itm)
 
     def fill(self, event=None):
         self.connection.get_listing(self, self.path.get(), self.fill_tree)

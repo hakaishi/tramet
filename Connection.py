@@ -50,8 +50,10 @@ class Connection:
             callback()
 
     def disconnect(self, callback=None):
-        self._worker.stop()
-        self._ui_worker.stop()
+        if self._worker:
+            self._worker.stop()
+        if self._ui_worker:
+            self._ui_worker.stop()
 
         if callback:
             callback()

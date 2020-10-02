@@ -7,7 +7,8 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 * ssh2-python
 
 ### TODO:
-* File search - fix crash (SSH only?)
+* save window size
+* add timeout setting to some sort of settings dialog
 * translations ?
 
 ### Known Problems:
