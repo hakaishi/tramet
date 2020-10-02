@@ -140,8 +140,7 @@ class Config(Toplevel):
             print(e)
 
     def save(self):
-        if self.root.connected:
-            self.root.connect()  # disconnect
+        self.root.connection.disconnect()  # disconnect
         self.save_file(self.conf)
         self.root.conf = self.conf
         profs = list(self.conf["profiles"].keys())

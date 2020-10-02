@@ -1,20 +1,15 @@
 #!/usr/bin/env python
 # -*- encoding=utf8 -*-
 
-from os import listdir, makedirs, utime, stat, remove
 from os.path import exists, join, basename, getmtime, getatime, getsize, isdir, normpath, \
     dirname, abspath, isfile, islink
-from stat import S_ISDIR, S_ISLNK, S_ISREG, filemode
-from datetime import datetime
-from re import search, IGNORECASE
-from ssh2.exceptions import *
-from ftplib import error_perm
 
 from mttkinter.mtTkinter import *
 from tkinter.ttk import *
-from tkinter import StringVar, IntVar, BooleanVar, messagebox
+from tkinter import StringVar, IntVar, BooleanVar, messagebox, filedialog
 
 from thread_work import ThreadWork
+from Connection import Connection
 
 from ftplisting import ftp_file_list
 
@@ -80,27 +75,22 @@ class SearchView(Toplevel):
         self.stopBtn.grid(row=0, column=1)
 
         scrollbar = Scrollbar(self, takefocus=0)
-        self.box = Listbox(self, yscrollcommand=scrollbar.set, selectmode="single", background="white smoke")
+        self.box = Listbox(self, yscrollcommand=scrollbar.set, selectmode=EXTENDED, background="white smoke")
         self.box.grid(row=0, sticky=NSEW, column=1, rowspan=10)
-        # self.box.grid_columnconfigure(0, weight=1)
-        # self.box.grid_columnconfigure(1, weight=2)
+        self.box.bind("<<ListboxSelect>>", self.on_selection_changed)
         self.grid_columnconfigure(1, weight=2)
         self.grid_rowconfigure(9, weight=2)
-        # self.box.grid_rowconfigure(0, weight=1)
 
         scrollbar.grid(row=0, column=2, sticky=NS, rowspan=10)
         scrollbar.config(command=self.box.yview)
 
+        self.downloadBtn = Button(self, text="Download", state="disabled", command=self.download_selected)
+        self.downloadBtn.grid(column=1)
+
         Sizegrip(self).grid(column=0, columnspan=3, sticky=E)
 
-        self.worker = ThreadWork(
-            self.parent.mode,
-            self.parent.connectionCB.get(),
-            self.parent.port,
-            self.parent.nameE.get(),
-            self.parent.password,
-            self.parent.enc
-        )
+        self.worker = Connection(self.parent.mode, self.parent.enc, "")
+        self.worker.connect(self, self.parent.mode, self.parent.connectionCB.get(), self.parent.port, self.parent.nameE.get(), self.parent.password, self.parent.enc, "")
 
     def setRecursive(self):
         if self.recursive.get():
@@ -111,84 +101,57 @@ class SearchView(Toplevel):
     def search(self):
         self.box.delete(0, END)
 
-        def _worker(conn, path, recurs, depth, fname, sensitive, regex):
-            if not path or not fname:
-                if not path:
-                    messagebox.showwarning("No search path!", "Please specify a path to search in.", parent=self)
-                else:
-                    messagebox.showwarning("No search pattern!", "Please specify a pattern to search.", parent=self)
+        def insert_result(result):
+            self.box.insert(END, result)
+
+        def done():
+            messagebox.showinfo("DONE", "Search completed!\nFound %d files." % len(self.box.get(0, END)),
+                                parent=self)
+
+        if not self.path.get() or not self.filename.get():
+            if not self.path.get():
+                messagebox.showwarning("No search path!", "Please specify a path to search in.", parent=self)
             else:
-                if self.parent.mode == "SFTP":
-                    def recurse(pth):
-                        current_depth = len(pth[len(path):].split("/"))
-                        if self.stop or (not recurs and current_depth > 1) or 0 < depth < current_depth:
-                            return
-                        try:
-                            with conn.opendir(pth) as dirh:
-                                for size, buf, attrs in sorted(
-                                        dirh.readdir(),
-                                        key=(lambda f: (S_ISREG(f[2].permissions) != 0, f[1]))):
-                                    obj = buf.decode(self.parent.enc)
-                                    if obj in [".", ".."]:
-                                        continue
-                                    if S_ISDIR(attrs.permissions) != 0:
-                                        recurse(join(pth, obj))
-                                    elif S_ISREG(attrs.permissions) != 0:
-                                        if not regex and ((sensitive and fname in obj) or (
-                                                not sensitive and fname.lower() in obj.lower())):
-                                            self.box.insert(END, join(pth, obj))
-                                        elif regex and search(fname, obj, 0 if sensitive else IGNORECASE):
-                                            self.box.insert(END, join(pth, obj))
-                                    elif S_ISLNK(attrs.permissions) != 0:
-                                        recurse(join(pth, obj))
-                        except SocketRecvError:
-                            messagebox.showinfo("Lost connection", "The connection was lost.", parent=self)
-                        except (PermissionError, SFTPProtocolError, SFTPHandleError) as e:
-                            print("error", e)
-                        except Exception as e:
-                            print("exception", e)
-                    recurse(path)
-                else:  # FTP
-                    def recurse(pth):
-                        current_depth = len(pth[len(path):].split("/"))
-                        if self.stop or (not recurs and current_depth > 1) or 0 < depth < current_depth:
-                            return
-                        try:
-                            data = ftp_file_list(conn, pth)
-                            for p, i in data.items():
-                                d = i.split()
-                                if d[0][0] == "d":
-                                    recurse(join(pth, p))
-                                elif d[0][0] == "-":
-                                    if not regex and ((sensitive and fname in p) or (not sensitive and fname.lower() in p.lower())):
-                                        self.box.insert(END, join(pth, p))
-                                    elif regex and search(fname, p, 0 if sensitive else IGNORECASE):
-                                        self.box.insert(END, join(pth, p))
-                                elif d[0][0] == "l":
-                                    recurse(join(pth, p))
-                        except:
-                            pass
-                    recurse(path)
+                messagebox.showwarning("No search pattern!", "Please specify a pattern to search.", parent=self)
+        else:
+            self.worker.search(
+                self.path.get(),
+                self.recursive.get(),
+                int(self.depth.get()),
+                self.filename.get(),
+                self.sensitive.get(),
+                self.regex.get(),
+                insert_result,
+                done
+            )
 
-            if self.worker:
-                self.worker.q.task_done()
-                if path and self.worker.q.empty():
-                    messagebox.showinfo("DONE", "Search completed!\nFound %d files." % len(self.box.get(0, END)), parent=self)
+    def on_selection_changed(self, event=None):
+        if len(self.box.curselection()) > 0:
+            self.downloadBtn.configure(state="normal")
+        else:
+            self.downloadBtn.configure(state="disabled")
 
-        self.worker._quitting = False
-        self.stop = False
-        self.worker.add_task(_worker, args=[
-            self.path.get(),
-            self.recursive.get(),
-            int(self.depth.get()),
-            self.filename.get(),
-            self.sensitive.get(),
-            self.regex.get()
-        ])
+    def download_selected(self):
+        sel = self.box.curselection()
+
+        dest = filedialog.askdirectory(title="Choose download destination", parent=self)
+        # a = AskString(self, "Choose destination",
+        #               "Choose upload destination",
+        #               initial_value=self.path.get())
+        # self.wait_window(a)
+        # dest = a.result
+
+        def done(message=None):
+            messagebox.showinfo("DONE", "Download done!", parent=self)
+
+        for i in sel:
+            pf = self.box.get(i)
+            self.worker.download(self, pf, basename(pf), None, None, done, True, dest)
 
     def do_stop(self):
         self.stop = True
-        self.worker.stop()
+        self.worker.stop_search = True
+        self.worker.disconnect()
 
     def destroy(self, event=None):
         self.parent.search_open = False
