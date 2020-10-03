@@ -7,7 +7,7 @@ from time import sleep
 
 from socket import socket, AF_INET, SOCK_STREAM
 from ssh2.session import Session
-from ssh2.exceptions import Timeout
+from ssh2.exceptions import *
 from ftplib import FTP
 
 from tkinter import messagebox
@@ -65,10 +65,17 @@ class ThreadWork:
             if data:
                 try:
                     func(self._connection, *data)
+                except SocketDisconnectError:
+                    messagebox.showerror("Connection Error", "Lost Connection.")
+                    self.connect()
+                # except Exception as e:
+                #     print("Unknown exception:", e)
+                #     self._connection = None
+            else:
+                try:
+                    func(self._connection)
                 except Exception as e:
                     print(e)
-            else:
-                func(self._connection)
 
             self.check_idle(True)
 
@@ -94,13 +101,15 @@ class ThreadWork:
                 cli.set_timeout(0)
                 self._connection = cli.sftp_init()
 
-
             except Timeout:
                 messagebox.showerror("Connection Error", "Connection timeout on login.")
                 return
-            except Exception as e:
-                messagebox.showerror("Connection Error", str(e))
-                return
+            except (SocketDisconnectError, SocketRecvError):
+                messagebox.showerror("Connection Error", "Could not establish a connection.")
+
+            # except Exception as e:
+            #     messagebox.showerror("Connection Error", str(e))
+            #     return
 
         else:  # FTP
             try:

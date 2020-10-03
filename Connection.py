@@ -96,6 +96,7 @@ class Connection:
                             ])
                 except SocketRecvError:
                     messagebox.showinfo("Lost connection", "The connection was lost.", parent=ui_)
+                    self._ui_worker.q.task_done()
                     return
                 except (PermissionError, SFTPProtocolError, SFTPHandleError) as e:
                     messagebox.showwarning(
@@ -103,6 +104,8 @@ class Connection:
                         "You don't have permission to see the content of this folder.",
                         parent=ui_
                     )
+                    self._ui_worker.q.task_done()
+                    return
 
             else:  # FTP
                 if self.cwd != "/":
@@ -175,6 +178,10 @@ class Connection:
                     messagebox.showerror("Path Error",
                                          "No such path or no permission to see this path.",
                                          parent=ui_)
+                    self._ui_worker.q.task_done()
+                    return
+                except SocketSendError:
+                    self._ui_worker.q.task_done()
                     return
 
                 if S_ISDIR(inf.permissions) != 0:
@@ -185,6 +192,7 @@ class Connection:
                         messagebox.showerror("Not supported",
                                              "Can't download links yet.",
                                              parent=ui_)
+                        self._ui_worker.q.task_done()
                         return
                     if item_nfo[0]:
                         destination = filedialog.askdirectory(
@@ -192,13 +200,10 @@ class Connection:
                             parent=ui_
                         )
                         if not destination:
-                            if self._ui_worker:
-                                self._ui_worker.q.task_done()
+                            self._ui_worker.q.task_done()
                             return
                         updatefunc(maximum=inf.filesize)
-                        self._worker.add_task(
-                            self.download,
-                            args=[
+                        self.download(
                                 ui_,
                                 "/".join((self.cwd, item_nfo[0])),
                                 item_nfo[0],
@@ -207,7 +212,6 @@ class Connection:
                                 donefunc,
                                 True,
                                 destination
-                            ]
                         )
             elif self._mode == "FTP" and conn:
                 fd = False
@@ -222,17 +226,20 @@ class Connection:
                             messagebox.showerror("Not supported",
                                                  "Can't download links yet.",
                                                  parent=ui_)
+                            self._ui_worker.q.task_done()
                             return
                         elif not item_nfo or item_nfo[1][0] not in ["-", ]:
                             messagebox.showerror("Path Error",
                                                  "No such path or no permission to see this path.",
                                                  parent=ui_)
+                            self._ui_worker.q.task_done()
                             return
                     except Exception:
                         if not item_nfo or item_nfo[1][0] not in ["-", ]:
                             messagebox.showerror("Path Error",
                                                  "No such path or no permission to see this path.",
                                                  parent=ui_)
+                            self._ui_worker.q.task_done()
                             return
                 if not fd:
                     ts = datetime.strptime(
@@ -243,16 +250,14 @@ class Connection:
                         parent=ui_
                     )
                     if not destination:
-                        if self._ui_worker:
-                            self._ui_worker.q.task_done()
+                        self._ui_worker.q.task_done()
                         return
                     updatefunc(maximum=item_nfo[3])
                     self._worker.add_task(
                         self.download, args=[ui_, self.cwd, item_nfo[0], (ts, ts), updatefunc, donefunc, True, destination]
                     )
 
-            if self._ui_worker:
-                self._ui_worker.q.task_done()
+            self._ui_worker.q.task_done()
             # donefunc(message=True)
 
         self._ui_worker.add_task(worker, args=[
@@ -267,6 +272,7 @@ class Connection:
                 def recurse(pth):
                     current_depth = len(pth[len(path_):].split("/"))
                     if self.stop_search or (not recursive_ and current_depth > 1) or 0 < depth_ < current_depth:
+                        self._ui_worker.q.task_done()
                         return
                     try:
                         with conn.opendir(pth) as dirh:
@@ -297,6 +303,7 @@ class Connection:
                 def recurse(pth):
                     current_depth = len(pth[len(path_):].split("/"))
                     if self.stop_search or (not recursive_ and current_depth > 1) or 0 < depth_ < current_depth:
+                        self._ui_worker.q.task_done()
                         return
                     try:
                         data = ftp_file_list(conn, pth)
@@ -322,11 +329,8 @@ class Connection:
 
     def download(self, ui, src, file, ts, update, done, isFile=True, destination=""):
         def worker(conn, ui_, src_, file_, ts_, updatefunc, donefunc, isFile_=True, destination_=""):
-            print(1)
             if isFile_:
-                print(2)
                 if destination_:
-                    print(3)
                     overwrite = True
                     if exists(join(destination_, file_)):
                         overwrite = messagebox.askokcancel(
@@ -334,7 +338,6 @@ class Connection:
                             "A file with the same name already exists. Do you want to override it?",
                             parent=ui_)
                     if overwrite:
-                        print(4)
                         if self._mode == "SFTP":
                             try:
                                 res = conn.session.scp_recv2(src_)
@@ -349,10 +352,10 @@ class Connection:
                                                 break
                                             size += siz
                                             if size > res[1].st_size:
-                                                sz = size - res[1].st_size
+                                                sz = res[1].st_size - size
                                                 f.write(tbuff[:sz])
                                                 if updatefunc:
-                                                    updatefunc(step=sz)
+                                                    updatefunc(step=len(tbuff[:sz]))
                                             else:
                                                 f.write(tbuff)
                                                 if updatefunc:
@@ -422,10 +425,11 @@ class Connection:
                                                     break
                                                 size_ += si
                                                 if size_ > res_[1].st_size:
-                                                    fil.write(tbuf[:(res_[1].st_size - size_)])
+                                                    sze = res_[1].st_size - size_
+                                                    fil.write(tbuf[:sze])
                                                     res_[0].close()
                                                     if updatefunc:
-                                                        updatefunc(step=sz)
+                                                        updatefunc(step=len(tbuff[:sze]))
                                                     break
                                                 else:
                                                     fil.write(tbuf)
@@ -536,6 +540,7 @@ class Connection:
             destination = filedialog.askdirectory(
                 title="Choose download destination")
             if not destination:
+                self._ui_worker.q.task_done()
                 return
             updatefunc(value=0, maximum=100, mode="indeterminate", start=True)
             for item in sel:
@@ -547,16 +552,13 @@ class Connection:
                 isFile = item["values"][0][0] == "-"
                 if self._mode == "SFTP":
                     nfo = conn.lstat("%s/%s" % (self.cwd, item["text"]))  # Do not follow links
-                    self._worker.add_task(
-                        self.download,
-                        args=[
+                    self.download(
                             ui_,
                             "%s/%s" % (self.cwd, item["text"]),
                             item["text"], (nfo.atime, nfo.mtime),
                             None, donefunc,
                             isFile,
                             destination
-                        ]
                     )
                 else:
                     ts = None
@@ -664,6 +666,7 @@ class Connection:
             def recurse(dest, target):
                 if self._mode == "SFTP":
                     if islink(target):
+                        self._worker.q.task_done()
                         return
                     elif isdir(target):
                         try:
@@ -708,6 +711,7 @@ class Connection:
                 else:
                     conn.cwd(self.cwd)
                     if islink(target):
+                        self._worker.q.task_done()
                         return
                     elif isdir(target):
                         conn.mkd(
