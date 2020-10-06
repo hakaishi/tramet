@@ -7,9 +7,6 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 * ssh2-python
 
 ### TODO:
-* save window size
-* add timeout setting to some sort of settings dialog
-* show size for multiple download via context menu
 * translations ?
 
 ### Known Problems:

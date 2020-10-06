@@ -36,7 +36,6 @@ class MainView(Tk):
                         fieldbackground="white smoke")
         style.configure("Treeview", background="white smoke")
 
-        self.geometry("650x500")
         self.minsize(500, 400)
 
         self.wm_title("Tramet")
@@ -48,6 +47,11 @@ class MainView(Tk):
         self.search_window = None
 
         self.conf = Config.load_file()
+
+        if "window_size" in self.conf:
+            self.geometry(self.conf["window_size"])
+        else:
+            self.geometry("650x500")
 
         self.enc = "utf-8"
         self.path = "/"
@@ -548,6 +552,7 @@ class MainView(Tk):
         else:
             prof["save_last_path"] = False
         self.conf["current_profile"] = self.profileCB.get()
+        self.conf["window_size"] = f"{self.winfo_width()}x{self.winfo_height()}"
         Config.save_file(self.conf)
         self.connection.quit()
         super().destroy()

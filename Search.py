@@ -1,17 +1,13 @@
 #!/usr/bin/env python
 # -*- encoding=utf8 -*-
 
-from os.path import exists, join, basename, getmtime, getatime, getsize, isdir, normpath, \
-    dirname, abspath, isfile, islink
+from os.path import basename
 
 from mttkinter.mtTkinter import *
 from tkinter.ttk import *
 from tkinter import StringVar, IntVar, BooleanVar, messagebox, filedialog
 
-from thread_work import ThreadWork
 from Connection import Connection
-
-from ftplisting import ftp_file_list
 
 
 class SearchView(Toplevel):

@@ -15,6 +15,8 @@ class AskString(Toplevel):
 
         self.wm_title(title or root.title() if root else "")
 
+        self.geometry("+%d+%d" % (root.winfo_x() + 50, root.winfo_y() + 25))
+
         f = Frame(self)
         if text:
             Label(f, text=text, justify=LEFT).grid(row=0, padx=5, sticky=W)

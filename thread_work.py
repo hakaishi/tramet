@@ -3,7 +3,7 @@
 
 from threading import Thread, Timer
 from queue import Queue
-from time import sleep
+# from time import sleep
 
 from socket import socket, AF_INET, SOCK_STREAM
 from ssh2.session import Session
@@ -14,7 +14,8 @@ from tkinter import messagebox
 
 
 class ThreadWork:
-    def __init__(self, mode, host, port, name, password, enc):
+    def __init__(self, mode, host, port, name, password, enc, timeout=10, descr="ThreadWork"):
+        self.name = descr
         self._quitting = False
         self._mode = mode
         self._host = host
@@ -27,18 +28,21 @@ class ThreadWork:
         self._thread.start()
         self._connection = None
         self._timeout = None
+        self._timeout_seconds = timeout
+        self._running = False
 
     def check_idle(self, not_timeout=False):
-        if self._timeout is None and not self.q.empty():
+        if self._timeout is None:
             self._timeout = Timer(10, self.check_idle)
             self._timeout.start()
-        elif not_timeout or not self.q.empty():
-            if self._timeout:
-                self._timeout.cancel()
-                self._timeout = None
+            return
+        if not_timeout or self._running:
+            self._timeout.cancel()
+            del self._timeout
             self._timeout = Timer(10, self.check_idle)
             self._timeout.start()
-        else:
+            return
+        if not self._running and not not_timeout:
             self.disconnect()
             self._connection = None
             self._timeout.cancel()
@@ -55,37 +59,38 @@ class ThreadWork:
     def _do_work(self):
         while not self._quitting:
             func, data = self.q.get(block=True)  # wait until something is available
+            self._running = True
             if func is None:
                 if self._timeout:
                     self._timeout.cancel()
-                    del self._timeout
+                    self._timeout = None
                 self.q.task_done()
+                self._running = False
                 return
 
             if data:
                 try:
                     func(self._connection, *data)
+                    self.q.task_done()
                 except SocketDisconnectError:
                     messagebox.showerror("Connection Error", "Lost Connection.")
-                    self.connect()
+                    self.q.task_done()
+                    self.disconnect()
                 # except Exception as e:
                 #     print("Unknown exception:", e)
                 #     self._connection = None
             else:
                 try:
                     func(self._connection)
+                    self.q.task_done()
                 except Exception as e:
                     print(e)
+                    self.q.task_done()
+                    self.disconnect()
+
+            self._running = False
 
             self.check_idle(True)
-
-    def disconnect(self):
-        if self._connection:
-            if self._mode == "SFTP":
-                self._connection.session.disconnect()
-            else:
-                self._connection.quit()
-            self._connection = None
 
     def connect(self):
         if self._mode == "SFTP":
@@ -123,17 +128,22 @@ class ThreadWork:
                 messagebox.showerror("Connection Error", str(e))
                 return
 
-    def stop(self):
+    def disconnect(self):
+        # print(self.name, "disconnect")
         self.q.queue.clear()
         if self._connection:
-            if self._mode == "SFTP":
-                self._connection.session.disconnect()
-            else:
-                self._connection.quit()
+            try:
+                if self._mode == "SFTP":
+                    self._connection.session.disconnect()
+                else:
+                    self._connection.quit()
+            except:
+                pass
+        self._connection = None
 
     def quit(self):
-        self._quitting = True
         self.q.queue.clear()
+        self._quitting = True
         if self._connection:
             if self._mode == "SFTP":
                 self._connection.session.disconnect()
