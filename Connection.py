@@ -24,28 +24,28 @@ LINK = 0x300
 
 
 class Connection:
-    def __init__(self, mode, encoding, path):
+    def __init__(self, mode, host, port, name, password, encoding, path, ui=None):
         self.cwd = path
         self._mode = mode
         self._enc = encoding
 
-        self._worker = None
-        self._ui_worker = None
+        self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker", ui=ui)
+        self._ui_worker = ThreadWork(mode, host, port, name, password, encoding, 15, "ui_worker", ui=ui)
 
         self.stop_search = False
 
-    def connect(self, ui, mode, host, port, name, password, encoding, path, callback=None):
+    def connect(self, mode, host, port, name, password, encoding, path, ui=None):
         if self._worker:
             self._worker.quit()
-        self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker")
+        self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker", ui=ui)
         if self._ui_worker:
             self._ui_worker.quit()
-        self._ui_worker = ThreadWork(mode, host, port, name, password, encoding, 15, "ui_worker")
+        self._ui_worker = ThreadWork(mode, host, port, name, password, encoding, 15, "ui_worker", ui=ui)
         self._mode = mode
         self._enc = encoding
 
-        if callback:
-            callback()
+        ui.progress.configure(value=0)
+        self.get_listing(self, path, ui.fill_tree)
 
     def disconnect(self, callback=None):
         if self._worker:
@@ -169,8 +169,6 @@ class Connection:
                                      "No such path or no permission to see this path.",
                                      parent=ui_)
                 return
-            except SocketSendError:
-                return
 
             if S_ISDIR(inf.permissions) != 0:
                 self.cwd = normpath(path_)
@@ -218,7 +216,8 @@ class Connection:
                                              "No such path or no permission to see this path.",
                                              parent=ui_)
                         return
-                except Exception:
+                except Exception as e:
+                    print(type(e), str(e))
                     if not item_nfo or item_nfo[1][0] not in ["-", ]:
                         messagebox.showerror("Path Error",
                                              "No such path or no permission to see this path.",
@@ -266,9 +265,7 @@ class Connection:
                 except SocketRecvError as e:
                     messagebox.showinfo("Lost connection", "The connection was lost.")
                 except (PermissionError, SFTPProtocolError, SFTPHandleError) as e:
-                    print("error", e)
-                except Exception as e:
-                    print("exception", e)
+                    print("error", type(e), str(e))
 
             recurse(path_)
         else:  # FTP
@@ -290,8 +287,8 @@ class Connection:
                                 resultfunc(join(pth, p))
                         elif d[0][0] == "l":
                             recurse(join(pth, p))
-                except:
-                    pass
+                except Exception as e:
+                    print(type(e), str(e))
 
             recurse(path_)
 
@@ -338,8 +335,6 @@ class Connection:
                             messagebox.showerror("Insufficient Permissions",
                                                  "Could not receive file because of insufficient permissions.",
                                                  parent=self)
-                        except Exception as e:
-                            print("unknown error: ", e)
 
                     else:
                         try:
@@ -460,7 +455,7 @@ class Connection:
                                         dt = datetime.strptime(" ".join(fi.split()[-3:]), "%b %d %Y")
                                     utime(join(destination_, path[len(src_) + 1:]), (dt.timestamp(), dt.timestamp()))
                                 except Exception as e:
-                                    print(e, path)
+                                    print(type(e), e, path)
 
                         size_all = {"size": size_sum_ if size_sum_ is not None else 0}
                         if size_sum_ is None:
@@ -606,7 +601,7 @@ class Connection:
                             file
                         ))
                     except Exception as e:
-                        print(e)
+                        print(type(e), str(e))
 
         donefunc(refresh=True, message=True)
 
@@ -641,7 +636,7 @@ class Connection:
                             recurse("%s/%s" % (dest, basename(target)),
                                     "%s/%s" % (target, basename(f)))
                     except Exception as e:
-                        print(target, e)
+                        print(target, type(e), str(e))
                 elif isfile(target):
                     fifo = stat(target)
                     mode = LIBSSH2_SFTP_S_IRUSR | \
@@ -701,7 +696,7 @@ class Connection:
                             )
                         )
                     except Exception as e:
-                        print(e)
+                        print(type(e), str(e))
 
         if folder_ and destination_:
             if self._mode == "SFTP":
@@ -720,7 +715,7 @@ class Connection:
                             conn.mkdir(fo, flgs)
                     # rt.path.set(normpath("%s/%s" % (p, fo)))
                 except Exception as e:
-                    pass
+                    print(type(e), str(e))
                 if not isfile(folder_):
                     try:
                         # conn.mkdir(basename(folder))
@@ -869,35 +864,45 @@ class Connection:
     # wrapper functions for threading
 
     def get_listing(self, ui, path, callback):
-        self._ui_worker.add_task(self._get_listing_worker, [ui, path, self._enc, callback])
+        if self._ui_worker:
+            self._ui_worker.add_task(self._get_listing_worker, [ui, path, self._enc, callback])
 
     def cwd_dnl(self, ui, path, item_info, update, done):
-        self._ui_worker.add_task(self._cwd_dnl_worker, [ui, path, self._enc, item_info, update, done])
+        if self._ui_worker:
+            self._ui_worker.add_task(self._cwd_dnl_worker, [ui, path, self._enc, item_info, update, done])
 
     def search(self, path, recursive, depth, filename, sensitive, regex, insert_result, done):
         self.stop_search = False
-        self._ui_worker.add_task(self._search_worker,
-                                 [path, recursive, depth, filename, sensitive, regex, insert_result, done])
+        if self._ui_worker:
+            self._ui_worker.add_task(self._search_worker,
+                                     [path, recursive, depth, filename, sensitive, regex, insert_result, done])
 
     def download(self, ui, src, file, ts, update, done, isFile=True, destination="", size_sum=None):
-        self._worker.add_task(self._download_worker,
-                              args=[ui, src, file, ts, update, done, isFile, destination, size_sum])
+        if self._worker:
+            self._worker.add_task(self._download_worker,
+                                  args=[ui, src, file, ts, update, done, isFile, destination, size_sum])
 
     def download_multi(self, ui, selection, update, done):
-        self._ui_worker.add_task(self._download_multi_worker, [ui, selection, update, done])
+        if self._ui_worker:
+            self._ui_worker.add_task(self._download_multi_worker, [ui, selection, update, done])
 
     def upload_files(self, ui, files, dest, update, done):
-        self._worker.add_task(self._upload_files_worker, [files, dest, update, done])
+        if self._worker:
+            self._worker.add_task(self._upload_files_worker, [files, dest, update, done])
 
     def upload_folder(self, ui, folder, destination, update, done):
-        self._worker.add_task(self._upload_folder_worker, [ui, folder, destination, update, done])
+        if self._worker:
+            self._worker.add_task(self._upload_folder_worker, [ui, folder, destination, update, done])
 
     def mkdir(self, ui, name, callback):
-        self._worker.add_task(self._mkdir_worker, [name, callback])
+        if self._worker:
+            self._worker.add_task(self._mkdir_worker, [name, callback])
 
     def rename(self, ui, orig_name, new_name, callback):
-        self._worker.add_task(self._rename_worker, [orig_name, new_name, callback])
+        if self._worker:
+            self._worker.add_task(self._rename_worker, [orig_name, new_name, callback])
 
     def delete_object(self, ui, list_, callback):
-        self._worker.add_task(self._delete_worker, [list_, callback])
+        if self._worker:
+            self._worker.add_task(self._delete_worker, [list_, callback])
 

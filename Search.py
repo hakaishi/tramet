@@ -22,6 +22,8 @@ class SearchView(Toplevel):
         self.geometry("+%d+%d" % (root.winfo_x() + 50, root.winfo_y() + 25))
         self.minsize(550, 300)
 
+        self.wm_title("Tramet - Search Files")
+
         pf = Labelframe(self, text="Path")
         pf.grid(sticky=EW, padx=5)
 
@@ -85,8 +87,13 @@ class SearchView(Toplevel):
 
         Sizegrip(self).grid(column=0, columnspan=3, sticky=E)
 
-        self.worker = Connection(self.parent.mode, self.parent.enc, "")
-        self.worker.connect(self, self.parent.mode, self.parent.connectionCB.get(), self.parent.port, self.parent.nameE.get(), self.parent.password, self.parent.enc, "")
+        self.worker = Connection(
+            self.parent.connectionCB.get(),
+            self.parent.port.get(),
+            self.parent.name.get(),
+            self.parent.password,
+            self.parent.mode, self.parent.enc, "")
+        self.worker.connect(self.parent.mode, self.parent.connectionCB.get(), self.parent.port, self.parent.nameE.get(), self.parent.password, self.parent.enc, "")
 
     def setRecursive(self):
         if self.recursive.get():

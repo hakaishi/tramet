@@ -35,6 +35,8 @@ class Config(Toplevel):
         self.geometry("+%d+%d" % (root.winfo_x()+50, root.winfo_y()+25))
         self.minsize(350, 300)
 
+        self.wm_title("Tramet - Profiles")
+
         list_frame = Frame(self)
         scrollbar = Scrollbar(list_frame)
         scrollbar.pack(fill=Y, side=RIGHT)

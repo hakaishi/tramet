@@ -3,7 +3,7 @@
 
 from threading import Thread, Timer
 from queue import Queue
-# from time import sleep
+from time import sleep
 
 from socket import socket, AF_INET, SOCK_STREAM
 from ssh2.session import Session
@@ -14,7 +14,7 @@ from tkinter import messagebox
 
 
 class ThreadWork:
-    def __init__(self, mode, host, port, name, password, enc, timeout=10, descr="ThreadWork"):
+    def __init__(self, mode, host, port, name, password, enc, timeout=10, descr="ThreadWork", max_size=1, ui=None):
         self.name = descr
         self._quitting = False
         self._mode = mode
@@ -23,26 +23,29 @@ class ThreadWork:
         self._name = name
         self._passwd = password
         self._enc = enc
-        self.q = Queue()
+        self.q = Queue(max_size)
         self._thread = Thread(target=self._do_work, daemon=False)
         self._thread.start()
         self._connection = None
         self._timeout = None
         self._timeout_seconds = timeout
         self._running = False
+        self._abort = False
+
+        self.parent_ui = ui
 
     def check_idle(self, not_timeout=False):
-        if self._timeout is None:
+        if self._timeout is None and self._connection is not None:
             self._timeout = Timer(10, self.check_idle)
             self._timeout.start()
             return
-        if not_timeout or self._running:
+        if (not_timeout or self._running) and self._connection is not None:
             self._timeout.cancel()
             del self._timeout
             self._timeout = Timer(10, self.check_idle)
             self._timeout.start()
             return
-        if not self._running and not not_timeout:
+        if self._connection is not None or (not self._running and not not_timeout):
             self.disconnect()
             self._connection = None
             self._timeout.cancel()
@@ -50,11 +53,11 @@ class ThreadWork:
 
     def add_task(self, func, args=None):
         if func and self._connection is None:
-            self.connect()
+            Thread(target=self._connect, daemon=False).start()
         if not func:
-            self.q.put((None, None))
-        elif self._connection:
-            self.q.put((func, args))
+            self.q.put((None, None), block=False)
+        else:
+            self.q.put((func, args), block=False)
 
     def _do_work(self):
         while not self._quitting:
@@ -68,6 +71,12 @@ class ThreadWork:
                 self._running = False
                 return
 
+            while self._connection is None and not self._abort:  # suspend thread until there is an connection
+                # print("waiting for connection")
+                sleep(0.3)
+            if self._abort:
+                continue
+
             if data:
                 try:
                     func(self._connection, *data)
@@ -76,9 +85,11 @@ class ThreadWork:
                     messagebox.showerror("Connection Error", "Lost Connection.")
                     self.q.task_done()
                     self.disconnect()
-                # except Exception as e:
-                #     print("Unknown exception:", e)
-                #     self._connection = None
+                except Exception as e:
+                    print("Unexpected Error:", type(e), str(e))
+                    messagebox.showerror("Unexpected Error", "%s" % str(e) if str(e) else type(e))
+                    self.q.task_done()
+                    self.disconnect()
             else:
                 try:
                     func(self._connection)
@@ -92,7 +103,11 @@ class ThreadWork:
 
             self.check_idle(True)
 
-    def connect(self):
+    def _connect(self):
+        self._abort = False
+        if self.parent_ui:
+            self.parent_ui.progress.configure(mode="indeterminate", maximum=100)
+            self.parent_ui.progress.start()
         if self._mode == "SFTP":
             try:
                 sock = socket(AF_INET, SOCK_STREAM)
@@ -107,14 +122,16 @@ class ThreadWork:
                 self._connection = cli.sftp_init()
 
             except Timeout:
+                self._abort = True
                 messagebox.showerror("Connection Error", "Connection timeout on login.")
-                return
-            except (SocketDisconnectError, SocketRecvError):
-                messagebox.showerror("Connection Error", "Could not establish a connection.")
-
-            # except Exception as e:
-            #     messagebox.showerror("Connection Error", str(e))
-            #     return
+            except Exception as e:
+                print(type(e), e.args, str(e))
+                self._abort = True
+                messagebox.showerror("Connection Error", "Could not establish a connection.\n%s" % e)
+            finally:
+                if self.parent_ui:
+                    self.parent_ui.progress.stop()
+                    self.parent_ui.progress.configure(value=0, mode="determinate")
 
         else:  # FTP
             try:
@@ -125,8 +142,12 @@ class ThreadWork:
 
                 self._connection = ftp
             except Exception as e:
+                self._abort = True
                 messagebox.showerror("Connection Error", str(e))
-                return
+            finally:
+                if self.parent_ui:
+                    self.parent_ui.progress.stop()
+                    self.parent_ui.progress.configure(value=0, mode="determinate")
 
     def disconnect(self):
         # print(self.name, "disconnect")

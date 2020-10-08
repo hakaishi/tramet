@@ -15,20 +15,22 @@ class AskString(Toplevel):
 
         self.wm_title(title or root.title() if root else "")
 
-        self.geometry("+%d+%d" % (root.winfo_x() + 50, root.winfo_y() + 25))
+        self.geometry("400x100+%d+%d" % (root.winfo_x() + 50, root.winfo_y() + 25))
 
         f = Frame(self)
         if text:
-            Label(f, text=text, justify=LEFT).grid(row=0, padx=5, sticky=W)
+            Label(f, text=text, justify=LEFT).grid(row=0, padx=5)
 
         self.string = StringVar()
         self.entry = Entry(f, textvariable=self.string)
-        self.entry.grid(row=1, padx=5, sticky=W+E)
+        self.entry.grid(row=1, padx=5, sticky=EW)
+        f.grid_columnconfigure(0, weight=1)
         if initial_value:
             self.string.set(initial_value)
             self.entry.icursor(END)
+            self.entry.xview(END)
 
-        f.pack()
+        f.pack(fill=X)
 
         Button(self, text="OK", command=self.ok).pack(side=RIGHT)
         Button(self, text="Cancel", command=self.destroy).pack(side=RIGHT)

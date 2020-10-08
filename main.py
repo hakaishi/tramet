@@ -71,7 +71,7 @@ class MainView(Tk):
         self.menubar.add_cascade(label="File", menu=self.filemenu)
         self.filemenu.add_command(label="Profiles", command=self.open_profiles)
         self.filemenu.add_command(label="Exit", command=self.destroy)
-        self.menubar.add_command(label="Search", command=self.find)
+        self.menubar.add_command(label="Search", command=self.find_files)
         self.optionbar = Menu(self.menubar, tearoff=False)
         self.optionbar.add_checkbutton(label="Save last Path", variable=self.save_last_path)
         self.menubar.add_cascade(label="Options", menu=self.optionbar)
@@ -249,8 +249,13 @@ class MainView(Tk):
 
             self.connection = Connection(
                 prof["mode"],
+                prof["host"],
+                prof["port"],
+                prof["user"],
+                prof["password"],
                 prof["encoding"],
-                prof["path"]
+                prof["path"],
+                ui=self
             )
 
     def open_profiles(self):
@@ -266,7 +271,7 @@ class MainView(Tk):
             self.ctx.destroy()
             self.ctx = None
 
-    def find(self, event=None):
+    def find_files(self, event=None):
         if not self.search_open:
             self.search_open = True
             self.search_window = SearchView(self, self.path.get())
@@ -446,14 +451,16 @@ class MainView(Tk):
         size_all = 0
         files = filedialog.askopenfilenames(title="Choose files to upload",
                                             parent=self)
-        dest = filedialog.askdirectory(title="Choose upload destination", parent=self)
-        # a = AskString(self, "Choose destination",
-        #               "Choose upload destination",
-        #               initial_value=self.path.get())
-        # self.wait_window(a)
-        # dest = a.result
 
-        if files:
+        dest = ""
+        if len(files) > 0:
+            a = AskString(self, "Choose destination",
+                          "Choose upload destination",
+                          initial_value=self.path.get())
+            self.wait_window(a)
+            dest += a.result
+
+        if len(files) > 0 and dest:
             self.progress.configure(mode="indeterminate", value=0)
             self.progress.start()
             for f in files:
@@ -461,22 +468,23 @@ class MainView(Tk):
             self.progress.stop()
             self.progress.configure(mode="determinate", maximum=size_all)
 
-        self.connection.upload_files(self, files, dest, self.update_progress, self.worker_done)
+            self.connection.upload_files(self, files, dest, self.update_progress, self.worker_done)
 
     def upload_folder(self):
         folder = filedialog.askdirectory(
             title="Choose folder to upload", parent=self
         )
 
-        dest = filedialog.askdirectory(title="Choose upload destination", parent=self)
+        dest = ""
+        if folder:
+            a = AskString(self, "Choose upload destination",
+                          "Input upload destination path",
+                          initial_value=self.path.get())
+            self.wait_window(a)
+            dest += a.result
 
-        # a = AskString(self, "Choose upload destination",
-        #               "Input upload destination path",
-        #               initial_value=self.path.get())
-        # self.wait_window(a)
-        # dest = a.result
-
-        self.connection.upload_folder(self, folder, dest, self.update_progress, self.worker_done)
+        if folder and dest:
+            self.connection.upload_folder(self, folder, dest, self.update_progress, self.worker_done)
 
     # def keep_alive(self):
     #     if not self.keep_alive_timer_running and self.connected:
@@ -521,13 +529,9 @@ class MainView(Tk):
         if p and p in self.conf["profiles"]:
             prof = self.conf["profiles"][p]
 
-            def cb():
-                self.progress.configure(value=0)
-                self.connection.get_listing(self, self.path.get(), self.fill_tree)
-
             self.connection.connect(
-                self, prof["mode"], prof["host"], prof["port"], prof["user"],
-                prof["password"], prof["encoding"], prof["path"], cb
+                prof["mode"], prof["host"], prof["port"], prof["user"],
+                prof["password"], prof["encoding"], prof["path"], self
             )
 
     def disconnect(self):
