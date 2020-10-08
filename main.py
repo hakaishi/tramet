@@ -296,11 +296,11 @@ class MainView(Tk):
     def worker_done(self, refresh=False, message=False, path=None):
         if path:
             self.path.set(path)
-        if refresh:
-            self.connection.get_listing(self, self.connection.cwd, self.fill_tree)
         if message and self.connection._worker.q.empty():
             messagebox.showinfo("DONE", "Download done!", parent=self)
             self.update_progress(mode="determinate", stop=True, value=0)
+        if refresh:
+            self.connection.get_listing(self, self.connection.cwd, self.fill_tree)
 
     def cwd_dnl(self, event=None, ignore_item=False):
         self.progress.configure(value=0)

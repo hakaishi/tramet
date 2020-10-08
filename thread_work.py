@@ -2,7 +2,7 @@
 # -*- encoding=utf8 -*-
 
 from threading import Thread, Timer
-from queue import Queue
+from queue import Queue, Full
 from time import sleep
 
 from socket import socket, AF_INET, SOCK_STREAM
@@ -14,7 +14,7 @@ from tkinter import messagebox
 
 
 class ThreadWork:
-    def __init__(self, mode, host, port, name, password, enc, timeout=10, descr="ThreadWork", max_size=1, ui=None):
+    def __init__(self, mode, host, port, name, password, enc, timeout=10, descr="ThreadWork", max_size=10, ui=None):
         self.name = descr
         self._quitting = False
         self._mode = mode
@@ -54,10 +54,13 @@ class ThreadWork:
     def add_task(self, func, args=None):
         if func and self._connection is None:
             Thread(target=self._connect, daemon=False).start()
-        if not func:
-            self.q.put((None, None), block=False)
-        else:
-            self.q.put((func, args), block=False)
+        try:
+            if not func:
+                self.q.put((None, None), block=False)
+            else:
+                self.q.put((func, args), block=False)
+        except Full:
+            messagebox.showwarning("Queue is full", "The queue is full. Try again later.")
 
     def _do_work(self):
         while not self._quitting:

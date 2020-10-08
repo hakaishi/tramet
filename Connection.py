@@ -29,8 +29,8 @@ class Connection:
         self._mode = mode
         self._enc = encoding
 
-        self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker", ui=ui)
-        self._ui_worker = ThreadWork(mode, host, port, name, password, encoding, 15, "ui_worker", ui=ui)
+        self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker", max_size=100, ui=ui)
+        self._ui_worker = ThreadWork(mode, host, port, name, password, encoding, 15, "ui_worker", max_size=2, ui=ui)
 
         self.stop_search = False
 
