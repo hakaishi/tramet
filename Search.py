@@ -16,7 +16,6 @@ class SearchView(Toplevel):
 
         self.stop = False
         self.parent = root
-        self.worker = None
 
         self.geometry("600x400")
         self.geometry("+%d+%d" % (root.winfo_x() + 50, root.winfo_y() + 25))
@@ -89,11 +88,12 @@ class SearchView(Toplevel):
 
         self.worker = Connection(
             self.parent.connectionCB.get(),
-            self.parent.port.get(),
+            self.parent.port,
             self.parent.name.get(),
             self.parent.password,
             self.parent.mode, self.parent.enc, "")
-        self.worker.connect(self.parent.mode, self.parent.connectionCB.get(), self.parent.port, self.parent.nameE.get(), self.parent.password, self.parent.enc, "")
+        self.worker.connect(self.parent.mode, self.parent.connectionCB.get(), self.parent.port, self.parent.nameE.get(),
+                            self.parent.password, self.parent.enc, "")
 
     def setRecursive(self):
         if self.recursive.get():

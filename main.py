@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox
 from MyDialogs import *
 
 from Config import Config
-from Connection import Connection, FOLDER, FILE, LINK
+from Connection import Connection
 from Search import SearchView
 
 
@@ -341,26 +341,7 @@ class MainView(Tk):
             p = self.path.get()
             self.connection.cwd_dnl(self, p, None, self.update_progress, self.worker_done)
 
-    def fill_tree(self, res):
-        self.path.set(res[0])
-        self.tree.delete(*self.tree.get_children())
-        for i in res[1]:
-            img = ""
-            if i[0] == FILE:
-                img = self.f_img
-            elif i[0] == FOLDER:
-                img = self.d_img
-            elif i[0] == LINK:
-                img = self.l_img
-
-            self.tree.insert(
-                "", END, text=i[1],
-                values=(
-                    i[2], i[3], i[4], i[5], i[6], i[7], i[8]
-                ),
-                image=img
-            )
-
+    def fill_tree(self):
         self.tree.focus_set()
         if len(self.tree.get_children("")) > 0:
             itm = self.tree.get_children("")[0]

@@ -18,10 +18,6 @@ from ftplisting import ftp_file_list
 
 from tkinter import filedialog, messagebox
 
-FILE = 0x100
-FOLDER = 0x200
-LINK = 0x300
-
 
 class Connection:
     def __init__(self, mode, host, port, name, password, encoding, path, ui=None):
@@ -44,8 +40,9 @@ class Connection:
         self._mode = mode
         self._enc = encoding
 
-        ui.progress.configure(value=0)
-        self.get_listing(self, path, ui.fill_tree)
+        if ui:
+            ui.progress.configure(value=0)
+            self.get_listing(ui, path, ui.fill_tree)
 
     def disconnect(self, callback=None):
         if self._worker:
@@ -76,21 +73,22 @@ class Connection:
 
                         tpe = None
                         if S_ISDIR(attrs.permissions) != 0:
-                            tpe = FOLDER
+                            tpe = ui_.d_img
                         elif S_ISREG(attrs.permissions) != 0:
-                            tpe = FILE
+                            tpe = ui_.f_img
                         elif S_ISLNK(attrs.permissions) != 0:
-                            tpe = LINK
+                            tpe = ui_.l_img
 
-                        result.append([
-                            tpe,
-                            buf.decode(enc),
-                            filemode(attrs.permissions),
-                            datetime.fromtimestamp(attrs.mtime).strftime(
-                                "%Y-%m-%d %H:%M:%S"
+                        ui_.tree.insert(
+                            "", "end", text=buf.decode(enc),
+                            values=(
+                                filemode(attrs.permissions),
+                                datetime.fromtimestamp(attrs.mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                                attrs.filesize, attrs.uid, attrs.gid, attrs.permissions, attrs.mtime
                             ),
-                            attrs.filesize, attrs.uid, attrs.gid, attrs.permissions, attrs.mtime
-                        ])
+                            image=tpe
+                        )
+
             except SocketRecvError:
                 messagebox.showinfo("Lost connection", "The connection was lost.", parent=ui_)
                 return
@@ -104,9 +102,7 @@ class Connection:
 
         else:  # FTP
             if self.cwd != "/":
-                result.append([
-                    FOLDER, "..", "", "", "", "", "", True, "",
-                ])
+                ui_.tree.insert("", "end", text="..", values=("", "", "", "", "", True, ""), image=ui_.d_img)
             if not path_:
                 self.cwd = conn.pwd()
 
@@ -130,15 +126,13 @@ class Connection:
 
                 tpe = None
                 if d[0][0] == "d":
-                    tpe = FOLDER
+                    tpe = ui_.d_img
                 elif d[0][0] == "-":
-                    tpe = FILE
+                    tpe = ui_.f_img
                 elif d[0][0] == "l":
-                    tpe = LINK
+                    tpe = ui_.l_img
 
-                result.append([
-                    tpe,
-                    p[0],
+                ui_.tree.insert("", "end", text=p[0], values=(
                     d[0],
                     dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "",
                     d[4],
@@ -146,10 +140,11 @@ class Connection:
                     d[3],
                     d[0][0] == "d",
                     dt.timestamp() if dt else ""
-                ])
+                ), image=tpe)
 
+        ui_.path.set(self.cwd)
         if cb:
-            cb([self.cwd, result])
+            cb()
 
     def _cwd_dnl_worker(self, conn, ui_, path_, enc, item_nfo, updatefunc, donefunc):
         if self._mode == "SFTP":
@@ -545,12 +540,11 @@ class Connection:
                 self.download(ui_, self.cwd, item["text"], (ts, ts),
                               None, donefunc, isFile, destination, size_all["size"])
 
-    def _upload_files_worker(self, conn, files_, destination, updatefunc, donefunc):
+    def _upload_files_worker(self, conn, ui_, files_, destination, updatefunc, donefunc):
         if files_ and len(files_) > 0 and destination:
             if self._mode == "SFTP":
                 for file in files_:
                     fifo = stat(file)
-
                     # chan = conn.session.scp_send64(
                     #     "%s/%s" % (destination.strip(), basename(file)),
                     #     fifo.st_mode & 0o777,
@@ -582,9 +576,21 @@ class Connection:
                             remfi.fsetstat(attr)
                     t = conn.stat("%s/%s" % (destination.strip(), basename(file)))
                     print(datetime.fromtimestamp(t.atime), datetime.fromtimestamp(t.mtime))
+
+                    ui_.tree.insert(
+                        "", "end", text=file,
+                        values=(
+                            filemode(fifo.st_mode),
+                            datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                            fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime
+                        ),
+                        image=ui_.f_img
+                    )
+
             else:
                 conn.cwd(self.cwd)
                 for file in files_:
+                    fifo = stat(file)
                     try:
                         def handl(blk):
                             if updatefunc:
@@ -603,7 +609,17 @@ class Connection:
                     except Exception as e:
                         print(type(e), str(e))
 
-        donefunc(refresh=True, message=True)
+                    ui_.tree.insert(
+                        "", "end", text=file,
+                        values=(
+                            filemode(fifo.st_mode),
+                            datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                            fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime
+                        ),
+                        image=ui_.f_img
+                    )
+
+        donefunc(message=True)
 
     def _upload_folder_worker(self, conn, ui_, folder_, destination_, updatefunc, donefunc):
         size_all = {"size": 0}
@@ -750,9 +766,14 @@ class Connection:
                 recurse(normpath("%s/%s" % (destination_, basename(folder_))),
                         normpath("%s/%s" % (folder_, basename(f_))))
 
-            donefunc(refresh=True, message=True)
+            donefunc(message=True)
 
-    def _mkdir_worker(self, conn, name_, cb):
+            ui_.tree.insert(
+                "", "end", text=folder_, values=("", "", "", "", "", "", ""),
+                image=ui_.d_img
+            )
+
+    def _mkdir_worker(self, conn, ui_, name_, cb):
         if self._mode == "SFTP":
             try:
                 flgs = LIBSSH2_FXF_CREAT | LIBSSH2_SFTP_S_IRWXU | \
@@ -768,9 +789,14 @@ class Connection:
             except Exception as e:
                 print(e)
 
-        cb(refresh=True)
+        cb(refresh=False)
 
-    def _rename_worker(self, conn, orig, new_, cb):
+        ui_.tree.insert(
+            "", "end", text=name_, values=("", "", "", "", "", "", ""),
+            image=ui_.d_img
+        )
+
+    def _rename_worker(self, conn, ui_, orig, new_, cb):
         if self._mode == "SFTP":
             try:
                 conn.rename(
@@ -864,6 +890,7 @@ class Connection:
     # wrapper functions for threading
 
     def get_listing(self, ui, path, callback):
+        ui.tree.delete(*ui.tree.get_children())
         if self._ui_worker:
             self._ui_worker.add_task(self._get_listing_worker, [ui, path, self._enc, callback])
 
@@ -888,7 +915,7 @@ class Connection:
 
     def upload_files(self, ui, files, dest, update, done):
         if self._worker:
-            self._worker.add_task(self._upload_files_worker, [files, dest, update, done])
+            self._worker.add_task(self._upload_files_worker, [ui, files, dest, update, done])
 
     def upload_folder(self, ui, folder, destination, update, done):
         if self._worker:
@@ -896,11 +923,11 @@ class Connection:
 
     def mkdir(self, ui, name, callback):
         if self._worker:
-            self._worker.add_task(self._mkdir_worker, [name, callback])
+            self._worker.add_task(self._mkdir_worker, [ui, name, callback])
 
     def rename(self, ui, orig_name, new_name, callback):
         if self._worker:
-            self._worker.add_task(self._rename_worker, [orig_name, new_name, callback])
+            self._worker.add_task(self._rename_worker, [ui, orig_name, new_name, callback])
 
     def delete_object(self, ui, list_, callback):
         if self._worker:
