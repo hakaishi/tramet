@@ -11,7 +11,19 @@ from Connection import Connection
 
 
 class SearchView(Toplevel):
+    """Dialog for searching files
+
+    :member: stop
+    :type: bool
+    """
     def __init__(self, root, current_path=""):
+        """Constructor for SearchView
+
+        :param root: the root parent Tk object
+        :type: Tk
+        :param current_path: The default path to search in
+        :type: string
+        """
         super().__init__(root)
 
         self.stop = False
@@ -96,6 +108,7 @@ class SearchView(Toplevel):
                             self.parent.password, self.parent.enc, "")
 
     def setRecursive(self):
+        """Trigger recursive search"""
         if self.recursive.get():
             self.depthFrame.grid()
         else:

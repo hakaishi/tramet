@@ -7,6 +7,10 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 * ssh2-python
 
 ### TODO:
+* mark & select last visited folder on return
+* add code documentation
+* add copy right notice to all source files
+* create own icons + Tramet icon
 * translations ?
 
 ### Known Problems:
@@ -14,5 +18,5 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 2. Implementation of MSLD (FTP) is too diverse and thus unusable
 3. Display of user- and group names when using FTP depends on the FTP server and its settings.
 4. Some FTP servers don't have a way to set the access/modification date of files after upload
-5. Symbolic links are not supported.
-6. There is some trouble with ssh file uploads. Timestamps are not preserved yet. The issue is currently under research
+5. Symbolic links are not supported. (up- and download)
+6. There is some trouble with ssh file uploads. Timestamps are not preserved yet. The issue is currently under investigation
