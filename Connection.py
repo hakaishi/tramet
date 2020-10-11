@@ -54,6 +54,8 @@ class Connection:
             callback()
 
     def _get_listing_worker(self, conn, ui_, path_, enc, cb):
+        ui_.progress.configure(value=0, mode="indeterminate")
+        ui_.progress.start()
         result = []
         if self._mode == "SFTP":
             try:
@@ -65,9 +67,8 @@ class Connection:
                     channel.wait_closed()
                     self.cwd = channel.read()[1].decode(enc).strip()
                 with conn.opendir(self.cwd) as dirh:
-                    for size, buf, attrs in sorted(
-                            dirh.readdir(),
-                            key=(lambda f: (S_ISREG(f[2].permissions) != 0, f[1]))):
+                    for size, buf, attrs in sorted(dirh.readdir(),
+                                                   key=(lambda f: (S_ISREG(f[2].permissions) != 0, f[1]))):
                         if buf.decode(enc) == "." or (self.cwd == "/" and buf.decode(enc) == ".."):
                             continue
 
@@ -91,13 +92,15 @@ class Connection:
 
             except SocketRecvError:
                 messagebox.showinfo("Lost connection", "The connection was lost.", parent=ui_)
-                return
             except (PermissionError, SFTPProtocolError, SFTPHandleError) as e:
                 messagebox.showwarning(
                     "Permission Denied",
                     "You don't have permission to see the content of this folder.",
                     parent=ui_
                 )
+            finally:
+                ui_.progress.stop()
+                ui_.progress.configure(value=0, mode="determinate")
                 return
 
         else:  # FTP
@@ -142,6 +145,8 @@ class Connection:
                     dt.timestamp() if dt else ""
                 ), image=tpe)
 
+        ui_.progress.stop()
+        ui_.progress.configure(value=0, mode="determinate")
         ui_.path.set(self.cwd)
         if cb:
             cb()
@@ -774,6 +779,9 @@ class Connection:
             )
 
     def _mkdir_worker(self, conn, ui_, name_, cb):
+        ui_.progress.configure(value=0, mode="indeterminate")
+        ui_.progress.start()
+
         if self._mode == "SFTP":
             try:
                 flgs = LIBSSH2_FXF_CREAT | LIBSSH2_SFTP_S_IRWXU | \
@@ -796,7 +804,12 @@ class Connection:
             image=ui_.d_img
         )
 
+        ui_.progress.stop()
+        ui_.progress.configure(value=0, mode="determinate")
+
     def _rename_worker(self, conn, ui_, orig, new_, cb):
+        ui_.progress.configure(value=0, mode="indeterminate")
+        ui_.progress.start()
         if self._mode == "SFTP":
             try:
                 conn.rename(
@@ -811,9 +824,14 @@ class Connection:
             except Exception as e:
                 print(e)
 
+        ui_.progress.stop()
+        ui_.progress.configure(value=0, mode="determinate")
         cb()
 
-    def _delete_worker(self, connection, list__, callback_):
+    def _delete_worker(self, ui_, connection, list__, callback_):
+        ui_.progress.configure(value=0, mode="indeterminate")
+        ui_.progress.start()
+
         def do_recursive(path):
             if self._mode == "SFTP":
                 try:
@@ -878,6 +896,8 @@ class Connection:
                 else:
                     connection.delete("/".join([self.cwd, i[1]]))
 
+            ui_.progress.stop()
+            ui_.progress.configure(value=0, mode="determinate")
             if callback_:
                 callback_(i[0])
 
