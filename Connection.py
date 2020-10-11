@@ -951,5 +951,5 @@ class Connection:
 
     def delete_object(self, ui, list_, callback):
         if self._worker:
-            self._worker.add_task(self._delete_worker, [list_, callback])
+            self._worker.add_task(self._delete_worker, [ui, list_, callback])
 
