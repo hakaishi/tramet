@@ -11,18 +11,14 @@ from Connection import Connection
 
 
 class SearchView(Toplevel):
-    """Dialog for searching files
-
-    :member: stop
-    :type: bool
-    """
+    """Dialog for searching files"""
     def __init__(self, root, current_path=""):
         """Constructor for SearchView
 
         :param root: the root parent Tk object
-        :type: Tk
+        :type root: Tk
         :param current_path: The default path to search in
-        :type: string
+        :type current_path: str
         """
         super().__init__(root)
 
@@ -115,12 +111,15 @@ class SearchView(Toplevel):
             self.depthFrame.grid_remove()
 
     def search(self):
+        """Clear previous results and start to search with entered conditions"""
         self.box.delete(0, END)
 
         def insert_result(result):
+            """callback to insert results"""
             self.box.insert(END, result)
 
         def done():
+            """callback to show that search is done"""
             messagebox.showinfo("DONE", "Search completed!\nFound %d files." % len(self.box.get(0, END)),
                                 parent=self)
 
@@ -142,22 +141,20 @@ class SearchView(Toplevel):
             )
 
     def on_selection_changed(self, event=None):
+        """allow download when more than one item is selected"""
         if len(self.box.curselection()) > 0:
             self.downloadBtn.configure(state="normal")
         else:
             self.downloadBtn.configure(state="disabled")
 
     def download_selected(self):
+        """start download of selected files"""
         sel = self.box.curselection()
 
         dest = filedialog.askdirectory(title="Choose download destination", parent=self)
-        # a = AskString(self, "Choose destination",
-        #               "Choose upload destination",
-        #               initial_value=self.path.get())
-        # self.wait_window(a)
-        # dest = a.result
 
         def done(message=None):
+            """callback for feedback about the download being done"""
             messagebox.showinfo("DONE", "Download done!", parent=self)
 
         for i in sel:
@@ -165,11 +162,13 @@ class SearchView(Toplevel):
             self.worker.download(self, pf, basename(pf), None, None, done, True, dest)
 
     def do_stop(self):
+        """stop the current search"""
         self.stop = True
         self.worker.stop_search = True
         self.worker.disconnect()
 
     def destroy(self, event=None):
+        """close and destroy the search dialog"""
         self.parent.search_open = False
         self.parent.search_window = None
         super().destroy()

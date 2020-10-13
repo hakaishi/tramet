@@ -14,7 +14,31 @@ from tkinter import messagebox
 
 
 class ThreadWork:
+    """Class to create and control a network related thread"""
     def __init__(self, mode, host, port, name, password, enc, timeout=10, descr="ThreadWork", max_size=10, ui=None):
+        """
+        ThreaWork constructor
+
+        :param mode: connection mode sftp/ftp
+        :type mode: str
+        :param host: remote host name/ip
+        :type host: str
+        :param port: port for remote host
+        :type port: int
+        :param name: user name for remote host
+        :type name: str
+        :param password: password for remote user
+        :type password: str
+        :param enc: encoding for remote user
+        :type enc: str
+        :param timeout: login timeout. defaults to 10 seconds
+        :type timeout: int
+        :param descr: the name for the current thread object
+        :type descr: str
+        :param max_size: maximum default size for the queue
+        :type max_size: int
+        :param ui: parent Tk object
+        :type ui: Tk"""
         self.name = descr
         self._quitting = False
         self._mode = mode
@@ -35,14 +59,19 @@ class ThreadWork:
         self.parent_ui = ui
 
     def check_idle(self, not_timeout=False):
+        """check if the connection is no longer used and disconnect. Check every 30 seconds
+
+        :param not_timeout: check ff check_idle is triggered by the timer
+        :type not_timeout: bool
+        """
         if self._timeout is None and self._connection is not None:
-            self._timeout = Timer(10, self.check_idle)
+            self._timeout = Timer(30, self.check_idle)
             self._timeout.start()
             return
         if (not_timeout or self._running) and self._connection is not None:
             self._timeout.cancel()
             del self._timeout
-            self._timeout = Timer(10, self.check_idle)
+            self._timeout = Timer(30, self.check_idle)
             self._timeout.start()
             return
         if self._connection is not None or (not self._running and not not_timeout):
@@ -52,6 +81,14 @@ class ThreadWork:
             self._timeout = None
 
     def add_task(self, func, args=None):
+        """add a task for the current connection and create a connection if necessary
+
+        :param func: the function to be executed on this thread
+        :type func: any
+        :param args: arguments to be passed to the function object
+        :type args: list of arguments
+        """
+        #: :param args:
         if func and self._connection is None:
             Thread(target=self._connect, daemon=False).start()
         try:
@@ -63,6 +100,7 @@ class ThreadWork:
             messagebox.showwarning("Queue is full", "The queue is full. Try again later.")
 
     def _do_work(self):
+        """check and wait for a connection and then execute the function with given parameters"""
         while not self._quitting:
             func, data = self.q.get(block=True)  # wait until something is available
             self._running = True
@@ -107,6 +145,7 @@ class ThreadWork:
             self.check_idle(True)
 
     def _connect(self):
+        """create a connection for this thread"""
         self._abort = False
         if self.parent_ui:
             self.parent_ui.progress.configure(mode="indeterminate", maximum=100)
@@ -153,6 +192,7 @@ class ThreadWork:
                     self.parent_ui.progress.configure(value=0, mode="determinate")
 
     def disconnect(self):
+        """disconnect this thread"""
         # print(self.name, "disconnect")
         self.q.queue.clear()
         if self._connection:
@@ -166,6 +206,7 @@ class ThreadWork:
         self._connection = None
 
     def quit(self):
+        """stop and clear this thread. disconnect when necessary."""
         self.q.queue.clear()
         self._quitting = True
         if self._connection:
@@ -178,6 +219,13 @@ class ThreadWork:
 
 
 def singleShot(func, args=None):
+    """single shot thread to execute a single task
+
+    :param func: function object to be executed
+    :type func: function
+    :param args: arguments to be passed to the given function
+    :type args: list of arguments
+    """
     if args is None:
         args = []
     t = Thread(target=func, args=args, daemon=False)

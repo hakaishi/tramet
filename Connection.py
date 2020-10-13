@@ -2,8 +2,7 @@
 # -*- encoding=utf8 -*-
 
 from os import listdir, makedirs, utime, stat, remove
-from os.path import exists, join, basename, getmtime, getatime, getsize, isdir, normpath, \
-    dirname, abspath, isfile, islink
+from os.path import exists, join, basename, getmtime, getsize, isdir, normpath, isfile, islink
 from stat import S_ISDIR, S_ISLNK, S_ISREG, filemode
 from datetime import datetime
 from re import search, IGNORECASE
@@ -11,7 +10,7 @@ from re import search, IGNORECASE
 from ssh2.sftp import *
 from ssh2.sftp_handle import SFTPAttributes
 from ssh2.exceptions import *
-from ftplib import FTP, error_perm
+from ftplib import error_perm
 
 from thread_work import *
 from ftplisting import ftp_file_list
@@ -20,17 +19,58 @@ from tkinter import filedialog, messagebox
 
 
 class Connection:
+    """ manage all remote work with a ui thread and an thread for remote work """
     def __init__(self, mode, host, port, name, password, encoding, path, ui=None):
+        """
+        constructor for Connection
+
+        :param mode: Connection mode - sftp/ftp
+        :type mode: str
+        :param host: host name or ip address for remote server
+        :type host: str
+        :param port: port number for remote connection
+        :type port: int
+        :param name: user name for remote login
+        :type name: str
+        :param password: password for remote login user
+        :type password: str
+        :param encoding: encoding for remote login user
+        :type encoding: str
+        :param path: path on remote server
+        :type path: str
+        :param ui: root Tk object
+        :type ui: Tk
+        """
         self.cwd = path
         self._mode = mode
         self._enc = encoding
 
-        self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker", max_size=100, ui=ui)
+        self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker", max_size=0, ui=ui)
         self._ui_worker = ThreadWork(mode, host, port, name, password, encoding, 15, "ui_worker", max_size=2, ui=ui)
 
         self.stop_search = False
 
     def connect(self, mode, host, port, name, password, encoding, path, ui=None):
+        """
+        create or re-create connection (aborts current connection)
+
+        :param mode: Connection mode - sftp/ftp
+        :type mode: str
+        :param host: host name or ip address for remote server
+        :type host: str
+        :param port: port number for remote connection
+        :type port: int
+        :param name: user name for remote login
+        :type name: str
+        :param password: password for remote login user
+        :type password: str
+        :param encoding: encoding for remote login user
+        :type encoding: str
+        :param path: path on remote server
+        :type path: str
+        :param ui: root Tk object
+        :type ui: Tk
+        """
         if self._worker:
             self._worker.quit()
         self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker", ui=ui)
@@ -45,6 +85,12 @@ class Connection:
             self.get_listing(ui, path, ui.fill_tree)
 
     def disconnect(self, callback=None):
+        """
+        disconnect the worker and abort all current tasks
+
+        :param callback: function object
+        :type callback: any
+        """
         if self._worker:
             self._worker.disconnect()
         if self._ui_worker:
@@ -54,6 +100,20 @@ class Connection:
             callback()
 
     def _get_listing_worker(self, conn, ui_, path_, enc, cb):
+        """
+        get the content of the defined path and insert it to the root view
+
+        :param conn: Connection object for sftp/ftp tasks
+        :type conn: object
+        :param ui_: root Tk object
+        :type ui_: Tk
+        :param path_: work directory
+        :type path_: str
+        :param enc: encoding for the current remote login user
+        :type enc: str
+        :param cb: callback function object
+        :type cb: function
+        """
         ui_.progress.configure(value=0, mode="indeterminate")
         ui_.progress.start()
         result = []
@@ -69,7 +129,8 @@ class Connection:
                 with conn.opendir(self.cwd) as dirh:
                     for size, buf, attrs in sorted(dirh.readdir(),
                                                    key=(lambda f: (S_ISREG(f[2].permissions) != 0, f[1]))):
-                        if buf.decode(enc) == "." or (self.cwd == "/" and buf.decode(enc) == ".."):
+                        obj = buf.decode(enc)
+                        if obj == "." or (self.cwd == "/" and obj == ".."):
                             continue
 
                         tpe = None
@@ -81,7 +142,7 @@ class Connection:
                             tpe = ui_.l_img
 
                         ui_.tree.insert(
-                            "", "end", text=buf.decode(enc),
+                            "", "end", text=obj,
                             values=(
                                 filemode(attrs.permissions),
                                 datetime.fromtimestamp(attrs.mtime).strftime("%Y-%m-%d %H:%M:%S"),
@@ -152,6 +213,24 @@ class Connection:
             cb()
 
     def _cwd_dnl_worker(self, conn, ui_, path_, enc, item_nfo, updatefunc, donefunc):
+        """
+        change into directory or start download of file - executed in separate thread
+
+        :param conn: Connection object for sftp/ftp tasks
+        :type conn: object
+        :param ui_: root Tk object
+        :type ui_: Tk
+        :param path_: file or directory
+        :type path_: str
+        :param enc: encoding for the current remote login user
+        :type enc: str
+        :param item_nfo: struct with information about path_
+        :type item_nfo: object
+        :param updatefunc: callback function for updating the ui (download progress)
+        :type updatefunc: function
+        :param donefunc: callback function to inform the user about the end of the download
+        :type donefunc: function
+        """
         if self._mode == "SFTP":
             inf = None
             if not path_:
@@ -239,6 +318,28 @@ class Connection:
         # donefunc(message=True)
 
     def _search_worker(self, conn, path_, recursive_, depth_, filename_, sensitive_, regex_, resultfunc, donefunc):
+        """
+        search for a file in the current path or in its subfolders - executed in separate thread
+
+        :param conn: Connection object for sftp/ftp tasks
+        :type conn: object
+        :param path_: file or directory
+        :type path_: str
+        :param recursive_: flag to search in subfolders
+        :type recursive_: bool
+        :param depth_: maximum depth of path
+        :type depth_: int
+        :param filename_: name/pattern to search for
+        :type filename_: str
+        :param sensitive_: flag for case sensitivity
+        :type sensitive_: bool
+        :param regex_: flag to use regular expressions to search with
+        :type regex_: bool
+        :param resultfunc: callback function to return results to UI
+        :type resultfunc: function
+        :param donefunc: callback to inform user about the end of search
+        :type donefunc: function
+        """
         if self._mode == "SFTP":
             def recurse(pth):
                 current_depth = len(pth[len(path_):].split("/"))
@@ -296,6 +397,30 @@ class Connection:
 
     def _download_worker(self, conn, ui_, src_, file_, ts_, updatefunc, donefunc, isFile_=True, destination_="",
                          size_sum_=None):
+        """
+        download files or folders - executed in separate thread
+
+        :param conn: Connection object for sftp/ftp tasks
+        :type conn: object
+        :param ui_: root Tk object
+        :type ui_: Tk
+        :param src_: original path
+        :type src_: str
+        :param file_: name of object (file or folder)
+        :type file_: str
+        :param ts_: timestamp tuple (atime, mtime)
+        :type ts_: tuple
+        :param updatefunc: callback function to update the UI
+        :type updatefunc: function
+        :param donefunc: callback function to inform the user about the end of a download
+        :type donefunc: function
+        :param isFile_: flag: true if it's a file else false
+        :type isFile_: bool
+        :param destination_: destination to download to
+        :type destination_: str
+        :param size_sum_: overall bytes to download
+        :type size_sum_: int
+        """
         if isFile_:
             if destination_:
                 overwrite = True
@@ -473,6 +598,22 @@ class Connection:
 
     @staticmethod
     def _get_size(conn, mode, enc, path, size_all, isFile):
+        """
+        calculate overall size
+
+        :param conn: Connection object for sftp/ftp tasks
+        :type conn: object
+        :param mode: Connection mode - sftp/ftp
+        :type mode: str
+        :param enc: encoding for the current remote login user
+        :type enc: str
+        :param path: file or folder to get size from
+        :type path: str
+        :param size_all: ref object for the result
+        :type size_all: dict
+        :param isFile: flag to indicate file or folder
+        :type isFile: bool
+        """
         if mode == "SFTP":
             if not isFile:
                 def recrse(pth, obj, attr, rslt):
@@ -510,6 +651,20 @@ class Connection:
                 size_all["size"] += conn.size(path)
 
     def _download_multi_worker(self, conn, ui_, sel, updatefunc, donefunc):
+        """
+        download multiple objects from selected items - executed in separate thread
+
+        :param conn: Connection object for sftp/ftp tasks
+        :type conn: object
+        :param ui_: root Tk object
+        :type ui_: Tk
+        :param sel: list of selected item objects (including metadata)
+        :type sel: list of objects
+        :param updatefunc: callback function to update the UI
+        :type updatefunc: function
+        :param donefunc: callback function to inform the user about the end of all downloads
+        :type donefunc: function
+        """
         destination = filedialog.askdirectory(
             title="Choose download destination")
         if not destination:
@@ -546,6 +701,22 @@ class Connection:
                               None, donefunc, isFile, destination, size_all["size"])
 
     def _upload_files_worker(self, conn, ui_, files_, destination, updatefunc, donefunc):
+        """
+        upload multiple local files - executed in separate thread
+
+        :param conn: Connection object for sftp/ftp tasks
+        :type conn: object
+        :param ui_: root Tk object
+        :type ui_: Tk
+        :param files_: files to upload
+        :type files_: list of str
+        :param destination: remote destination path
+        :type destination: str
+        :param updatefunc: callback function to update the UI
+        :type updatefunc: function
+        :param donefunc: callback function to inform the user about the end of all uploads
+        :type donefunc: function
+        """
         if files_ and len(files_) > 0 and destination:
             if self._mode == "SFTP":
                 for file in files_:
@@ -627,6 +798,22 @@ class Connection:
         donefunc(message=True)
 
     def _upload_folder_worker(self, conn, ui_, folder_, destination_, updatefunc, donefunc):
+        """
+        upload local folder - executed in separate thread
+
+        :param conn: Connection object for sftp/ftp tasks
+        :type conn: object
+        :param ui_: root Tk object
+        :type ui_: Tk
+        :param folder_: local folder to upload
+        :type folder_: str
+        :param destination_: remote destination path
+        :type destination_: str
+        :param updatefunc: callback function to update the UI
+        :type updatefunc: function
+        :param donefunc: callback function to inform the user about the end of uploads
+        :type donefunc: function
+        """
         size_all = {"size": 0}
 
         if folder_:
@@ -779,6 +966,18 @@ class Connection:
             )
 
     def _mkdir_worker(self, conn, ui_, name_, cb):
+        """
+        create a remote folder - execute in separate thread
+
+        :param conn: Connection object for sftp/ftp tasks
+        :type conn: object
+        :param ui_: root Tk object
+        :type ui_: Tk
+        :param name_: name of the new remote folder
+        :type name_: str
+        :param cb: callback function to update the UI
+        :type cb: function
+        """
         ui_.progress.configure(value=0, mode="indeterminate")
         ui_.progress.start()
 
@@ -808,6 +1007,20 @@ class Connection:
         ui_.progress.configure(value=0, mode="determinate")
 
     def _rename_worker(self, conn, ui_, orig, new_, cb):
+        """
+        rename remote object - executed in separate thread
+
+        :param conn: Connection object for sftp/ftp tasks
+        :type conn: object
+        :param ui_: root Tk object
+        :type ui_: Tk
+        :param orig: original object name
+        :type orig: str
+        :param new_: new object name
+        :type new_: str
+        :param cb: callback function to update the UI
+        :type cb: function
+        """
         ui_.progress.configure(value=0, mode="indeterminate")
         ui_.progress.start()
         if self._mode == "SFTP":
@@ -829,6 +1042,18 @@ class Connection:
         cb()
 
     def _delete_worker(self, ui_, connection, list__, callback_):
+        """
+        delete remote objects - executed in separate thread
+
+        ::param connection: Connection object for sftp/ftp tasks
+        :type connection: object
+        :param ui_: root Tk object
+        :type ui_: Tk
+        :param list__: list of remote objects to delete
+        :type list__: list of str
+        :param callback_: callback function to update the UI
+        :type callback_: function
+        """
         ui_.progress.configure(value=0, mode="indeterminate")
         ui_.progress.start()
 
@@ -902,6 +1127,7 @@ class Connection:
                 callback_(i[0])
 
     def quit(self):
+        """disconnect, stop threads clear queues"""
         if self._worker:
             self._worker.quit()
         if self._ui_worker:
