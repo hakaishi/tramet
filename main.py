@@ -15,6 +15,7 @@ from Search import SearchView
 
 
 class MainView(Tk):
+    """Main view"""
     def __init__(self):
         super().__init__()
 
@@ -189,12 +190,14 @@ class MainView(Tk):
         self.mainloop()
 
     def _search(self, *args):
+        """search in treeview and jump to object"""
         pattern = self._toSearch.get()
         # avoid search on empty string
         if len(pattern) > 0:
             self.search(pattern)
 
     def search(self, pattern, item=''):
+        """search for pattern in treeview"""
         children = self.tree.get_children("")
         for i, child in enumerate(children):
             text = self.tree.item(child, 'text')
@@ -209,6 +212,7 @@ class MainView(Tk):
                 self.found = -1
 
     def _keyOnTree(self, event):
+        """trigger search on keypress excluding escape, backspace or tab"""
         if len(event.char) == 1 and event.keysym not in ["Escape", "BackSpace", "Tab"]:
             self.found = -1
             self.searchEntry.place(relx=1, anchor=NE)
@@ -216,23 +220,27 @@ class MainView(Tk):
             self.searchEntry.focus_set()
 
     def _hideEntry(self, event):
+        """hide search field"""
         self.searchEntry.delete(0, END)
         self.searchEntry.place_forget()
         self.tree.focus_set()
 
     def on_get_focus(self, event=None):
+        """set focus and selection on receiving focus in"""
         if len(self.tree.selection()) == 0 and len(self.tree.get_children("")) > 0:
             self.tree.selection_set(self.tree.get_children('')[0])  # set selection on the first item
             self.tree.focus_set()
             self.tree.focus(self.tree.get_children('')[0])
 
     def select_all(self, e):
+        """select all items"""
         # select text
         e.widget.select_range(0, END)
         # move cursor to the end
         e.widget.icursor(END)
 
     def set_profile(self, event=None):
+        """set profile and reconnect"""
         p = self.profileCB.get()
         if p and p in self.conf["profiles"]:
             prof = self.conf["profiles"][p]
@@ -259,6 +267,7 @@ class MainView(Tk):
             )
 
     def open_profiles(self):
+        """open profile settings dialog or raise & focus it"""
         if not self.profiles_open:
             self.profiles_open = True
             self.config_window = Config(self)
@@ -267,11 +276,13 @@ class MainView(Tk):
             self.config_window.focus()
 
     def selection(self, e=None):
+        """close & destroy context menu on selection change event"""
         if self.ctx:
             self.ctx.destroy()
             self.ctx = None
 
     def find_files(self, event=None):
+        """open file search dialog or raise & focus it"""
         if not self.search_open:
             self.search_open = True
             self.search_window = SearchView(self, self.path.get())
@@ -280,6 +291,22 @@ class MainView(Tk):
             self.search_window.focus()
 
     def update_progress(self, maximum=None, value=None, step=None, mode=None, start=None, stop=None):
+        """
+        update progress from threads
+
+        :param maximum: set maximum of progress bar
+        :type maximum: int
+        :param value: set value of progress bar
+        :type value: int
+        :param step: set step of progress bar
+        :type step: int
+        :param mode: set mode of progress bar
+        :type mode: str
+        :param start: flag to call start on progress bar
+        :type start: bool
+        :param stop: flag to stop progress bar
+        :type stop: bool
+        """
         if maximum:
             self.progress.configure(maximum=maximum)
         if value:
@@ -293,11 +320,21 @@ class MainView(Tk):
         if stop:
             self.progress.stop()
 
-    def worker_done(self, refresh=False, message=False, path=None):
+    def worker_done(self, refresh=False, message="", path=None):
+        """
+        actions to be executed on finish
+
+        :param refresh: flag to trigger refreshing of the treeview listing
+        :type refresh: bool
+        :param message: show message when queue got empty
+        :type message: str
+        :param path: set current workpath
+        :type path: str
+        """
         if path:
             self.path.set(path)
         if message and self.connection._worker.q.empty():
-            messagebox.showinfo("DONE", "Download done!", parent=self)
+            messagebox.showinfo("DONE", message, parent=self)
             self.update_progress(mode="determinate", stop=True, value=0)
         if refresh:
             self.connection.get_listing(self, self.connection.cwd, self.fill_tree)

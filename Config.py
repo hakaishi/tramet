@@ -22,7 +22,14 @@ from json import dump, load
 
 
 class Config(Toplevel):
+    """Settings dialog - mainly profile settings"""
     def __init__(self, root):
+        """
+        Constructor of Config
+
+        :param root: root Tk object
+        :type root: Tk
+        """
         super().__init__(root)
 
         self.root = root
@@ -69,6 +76,7 @@ class Config(Toplevel):
         Sizegrip(self).pack(side=RIGHT)
 
     def context(self, event=None):
+        """Context menu"""
         popup = Menu(self, tearoff=False)
         popup.add_command(label="create", command=lambda: self.on_double_click(None))
         if len(self.list.curselection()) > 0 or self.list.nearest(event.y) != -1:
@@ -80,6 +88,7 @@ class Config(Toplevel):
         popup.tk_popup(event.x_root, event.y_root)
 
     def on_double_click(self, e, idx=-1):
+        """Double click event to open or raise profile settings"""
         item = []
         if e:
             item = self.list.curselection()
@@ -94,6 +103,7 @@ class Config(Toplevel):
             self.editor_window.focus()
 
     def move_up(self, e):
+        """move selection up event"""
         idx = self.list.curselection()
         if len(idx) > 0:
             if idx[0] > 0:
@@ -105,12 +115,14 @@ class Config(Toplevel):
             self.list.activate(0)
 
     def focus_in_(self, e):
+        """focus in event"""
         idx = self.list.curselection()
         if len(idx) == 0:
             self.list.selection_set(0)
             self.list.activate(0)
 
     def move_dwn(self, e):
+        """move selection down event"""
         idx = self.list.curselection()
         if len(idx) > 0:
             if idx[0]+1 < len(self.list.get(0, END)):
@@ -123,6 +135,7 @@ class Config(Toplevel):
 
     @staticmethod
     def load_file():
+        """load settings file"""
         try:
             with open("config", "r+") as file:
                 d = load(file)
@@ -135,6 +148,12 @@ class Config(Toplevel):
 
     @classmethod
     def save_file(cls, obj):
+        """
+        save settings object to settings file
+
+        :param obj: settings object
+        :type obj: dict
+        """
         try:
             with open("config", "w+") as file:
                 dump(obj, file, indent=4)
@@ -142,6 +161,7 @@ class Config(Toplevel):
             print(e)
 
     def save(self):
+        """save settings button pressed"""
         self.root.connection.disconnect()  # disconnect
         self.save_file(self.conf)
         self.root.conf = self.conf
@@ -154,6 +174,7 @@ class Config(Toplevel):
         self.destroy()
 
     def delete(self, e=None, idx=-1):
+        """delete profile"""
         # if self.profile.get():
         #     self.conf.pop(self.profile.get(), None)
         sel = self.list.curselection()
@@ -166,13 +187,23 @@ class Config(Toplevel):
                 self.list.delete(sel[0])
 
     def destroy(self):
+        """close & destroy settings dialog"""
         self.root.profiles_open = False
         self.root.config_window = None
         super().destroy()
 
 
 class Editor(Toplevel):
+    """profile editor dialog"""
     def __init__(self, root, item):
+        """
+        Contructor of Editor
+
+        :param root: Config dialog
+        :type root: Config
+        :param item: Selected profile item
+        :type item: Listbox item
+        """
         super().__init__(root)
 
         self.root = root
@@ -259,6 +290,7 @@ class Editor(Toplevel):
         self.bind("<Escape>", lambda e: self.destroy())
 
     def ok(self):
+        """ok button pressed - check and save profile settings"""
         if not self.profile.get().strip() or\
             not self.host.get().strip() or\
             not self.port.get() or\
@@ -290,6 +322,7 @@ class Editor(Toplevel):
         self.destroy()
 
     def destroy(self, event=None):
+        """close & destroy profile editor dialog"""
         self.root.editor_open = False
         self.root.editor_window = None
         super().destroy()

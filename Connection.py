@@ -282,7 +282,7 @@ class Connection:
                 try:  # Try to change into path. If we can't, then it's either a file or insufficient permissions
                     conn.cwd(path_)
                     self.cwd = normpath(path_)
-                    donefunc(refresh=True, message=False, path=self.cwd)
+                    donefunc(refresh=True, message="", path=self.cwd)
                     fd = True
                 except error_perm:
                     if item_nfo[1][0] == "l":
@@ -594,7 +594,7 @@ class Connection:
                             recurse(join(src_, file_, inf[0]), inf[1])
 
         if donefunc:
-            donefunc(message=True)
+            donefunc(message="Download done!")
 
     @staticmethod
     def _get_size(conn, mode, enc, path, size_all, isFile):
@@ -795,7 +795,7 @@ class Connection:
                         image=ui_.f_img
                     )
 
-        donefunc(message=True)
+        donefunc(message="Upload done!")
 
     def _upload_folder_worker(self, conn, ui_, folder_, destination_, updatefunc, donefunc):
         """
@@ -958,7 +958,7 @@ class Connection:
                 recurse(normpath("%s/%s" % (destination_, basename(folder_))),
                         normpath("%s/%s" % (folder_, basename(f_))))
 
-            donefunc(message=True)
+            donefunc(message="Upload done!")
 
             ui_.tree.insert(
                 "", "end", text=folder_, values=("", "", "", "", "", "", ""),
