@@ -7,9 +7,6 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 * ssh2-python
 
 ### TODO:
-* mark & select last visited folder on return
-* add code documentation
-* add copy right notice to all source files
 * create own icons + Tramet icon
 * translations ?
 

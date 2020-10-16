@@ -109,7 +109,7 @@ class Connection:
 
         if ui:
             ui.progress.configure(value=0)
-            self.get_listing(ui, path, ui.fill_tree)
+            self.get_listing(ui, path, ui.fill_tree_done)
 
     def disconnect(self, callback=None):
         """
@@ -126,7 +126,7 @@ class Connection:
         if callback:
             callback()
 
-    def _get_listing_worker(self, conn, ui_, path_, enc, cb):
+    def _get_listing_worker(self, conn, ui_, path_, enc, cb, sel):
         """
         get the content of the defined path and insert it to the root view
 
@@ -140,6 +140,8 @@ class Connection:
         :type enc: str
         :param cb: callback function object
         :type cb: function
+        :param sel: selected item
+        :type sel: str
         """
         ui_.progress.configure(value=0, mode="indeterminate")
         ui_.progress.start()
@@ -168,7 +170,7 @@ class Connection:
                         elif S_ISLNK(attrs.permissions) != 0:
                             tpe = ui_.l_img
 
-                        ui_.tree.insert(
+                        iid = ui_.tree.insert(
                             "", "end", text=obj,
                             values=(
                                 filemode(attrs.permissions),
@@ -177,6 +179,10 @@ class Connection:
                             ),
                             image=tpe
                         )
+                        if sel and obj == sel:
+                            ui_.tree.see(iid)
+                            ui_.tree.selection_set(iid)
+                            ui_.tree.focus(iid)
 
             except SocketRecvError:
                 messagebox.showinfo("Lost connection", "The connection was lost.", parent=ui_)
@@ -236,7 +242,7 @@ class Connection:
         ui_.progress.stop()
         ui_.progress.configure(value=0, mode="determinate")
         ui_.path.set(self.cwd)
-        if cb:
+        if not sel and cb:
             cb()
 
     def _cwd_dnl_worker(self, conn, ui_, path_, enc, item_nfo, updatefunc, donefunc):
@@ -258,6 +264,7 @@ class Connection:
         :param donefunc: callback function to inform the user about the end of the download
         :type donefunc: function
         """
+        last = basename(self.cwd)
         if self._mode == "SFTP":
             inf = None
             if not path_:
@@ -278,7 +285,7 @@ class Connection:
 
             if S_ISDIR(inf.permissions) != 0:
                 self.cwd = normpath(path_)
-                donefunc(refresh=True, path=self.cwd)
+                donefunc(refresh=True, path=self.cwd, selected=last)
             else:
                 if S_ISLNK(conn.lstat(path_).permissions) != 0:
                     messagebox.showerror("Not supported",
@@ -1162,10 +1169,10 @@ class Connection:
 
     # wrapper functions for threading
 
-    def get_listing(self, ui, path, callback):
+    def get_listing(self, ui, path, callback, selected=""):
         ui.tree.delete(*ui.tree.get_children())
         if self._ui_worker:
-            self._ui_worker.add_task(self._get_listing_worker, [ui, path, self._enc, callback])
+            self._ui_worker.add_task(self._get_listing_worker, [ui, path, self._enc, callback, selected])
 
     def cwd_dnl(self, ui, path, item_info, update, done):
         if self._ui_worker:

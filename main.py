@@ -232,8 +232,9 @@ class MainView(Tk):
                 continue
             if text.lower().startswith(pattern.lower()):
                 self.found = i
-                self.tree.selection_set(child)
                 self.tree.see(child)
+                self.tree.selection_set(child)
+                self.tree.focus(child)
                 return True
             if i == len(children) - 1:
                 self.found = -1
@@ -347,7 +348,7 @@ class MainView(Tk):
         if stop:
             self.progress.stop()
 
-    def worker_done(self, refresh=False, message="", path=None):
+    def worker_done(self, refresh=False, message="", path=None, selected=""):
         """
         actions to be executed on finish
 
@@ -357,6 +358,8 @@ class MainView(Tk):
         :type message: str
         :param path: set current workpath
         :type path: str
+        :param selected: select item
+        :type selected: str
         """
         if path:
             self.path.set(path)
@@ -364,9 +367,16 @@ class MainView(Tk):
             messagebox.showinfo("DONE", message, parent=self)
             self.update_progress(mode="determinate", stop=True, value=0)
         if refresh:
-            self.connection.get_listing(self, self.connection.cwd, self.fill_tree)
+            self.connection.get_listing(self, self.connection.cwd, self.fill_tree_done, selected=selected)
 
     def cwd_dnl(self, event=None, ignore_item=False):
+        """
+        Change dir if item is a dir, else download
+
+        :param event: activation event
+        :param ignore_item: change folder (do not try to download)
+        :type ignore_item: bool
+        """
         self.progress.configure(value=0)
 
         self.selection()
@@ -405,7 +415,8 @@ class MainView(Tk):
             p = self.path.get()
             self.connection.cwd_dnl(self, p, None, self.update_progress, self.worker_done)
 
-    def fill_tree(self):
+    def fill_tree_done(self):
+        """scroll to first item after all objects are displayed"""
         self.tree.focus_set()
         if len(self.tree.get_children("")) > 0:
             itm = self.tree.get_children("")[0]
@@ -413,9 +424,11 @@ class MainView(Tk):
             self.tree.focus(itm)
 
     def fill(self, event=None):
-        self.connection.get_listing(self, self.path.get(), self.fill_tree)
+        """fill treeview with data"""
+        self.connection.get_listing(self, self.path.get(), self.fill_tree_done)
 
     def context(self, e):
+        """create a context menu"""
         self.ctx = Menu(self, tearoff=False)
         # iid = self.tree.identify_row(e.y)
         sel = self.tree.selection()
@@ -449,6 +462,7 @@ class MainView(Tk):
         self.ctx.tk_popup(e.x_root, e.y_root)
 
     def mkdir(self):
+        """create a new folder"""
         a = AskString(self, "Create Directory",
                       "Enter a name for the new directory:")
         self.wait_window(a)
@@ -458,6 +472,7 @@ class MainView(Tk):
             self.connection.mkdir(self, name, self.worker_done)
 
     def delete(self, event=None):
+        """delete the selected objects"""
         def callback(index):
             self.tree.delete(index)
 
@@ -476,6 +491,7 @@ class MainView(Tk):
                 self.connection.delete_object(self, rmlist, callback)
 
     def rename(self, event=None):
+        """rename the selected object"""
         idx = self.tree.selection()
         if len(idx) > 0:
             if self.tree.item(idx[0], "text") in ["..", "."]:
@@ -493,6 +509,7 @@ class MainView(Tk):
                 self.connection.rename(self, self.tree.item(idx[0], "text"), name, callback)
 
     def upload_file(self):
+        """upload local files"""
         size_all = 0
         files = filedialog.askopenfilenames(title="Choose files to upload",
                                             parent=self)
@@ -516,6 +533,7 @@ class MainView(Tk):
             self.connection.upload_files(self, files, dest, self.update_progress, self.worker_done)
 
     def upload_folder(self):
+        """upload a local folder"""
         folder = filedialog.askdirectory(
             title="Choose folder to upload", parent=self
         )
@@ -562,6 +580,7 @@ class MainView(Tk):
     #         self.keep_alive()
 
     def connect(self):
+        """(Re-)connect"""
         p = self.profileCB.get()
 
         if self.profileCB.get() == "please select a profile":
@@ -580,6 +599,7 @@ class MainView(Tk):
             )
 
     def disconnect(self):
+        """disconnect"""
         prof = self.conf["profiles"][self.profileCB.get()]
         if self.save_last_path.get():
             prof["save_last_path"] = True
@@ -594,6 +614,7 @@ class MainView(Tk):
         self.connection.disconnect(cb)
 
     def destroy(self):
+        """close and destroy the application"""
         prof = self.conf["profiles"][self.profileCB.get()]
         if self.save_last_path.get():
             prof["save_last_path"] = True
