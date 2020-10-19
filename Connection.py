@@ -1075,7 +1075,7 @@ class Connection:
         ui_.progress.configure(value=0, mode="determinate")
         cb()
 
-    def _delete_worker(self, ui_, connection, list__, callback_):
+    def _delete_worker(self, connection, ui_, list__, callback_):
         """
         delete remote objects - executed in separate thread
 
