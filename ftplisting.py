@@ -32,23 +32,49 @@ from os.path import basename
 
 
 def ftp_file_list(conn, path):
+    """
+    get real file names vs file info
+    Problem1: there might be spaces in the name
+    Problem2: there are link objects
+    Work-around: first get real file name with NLST
+
+    :param conn: a ftp connection object
+    :param path: the path to get content
+    :return: returns files vs file info dict
+    """
     dir_res = []
     conn.dir(path, dir_res.append)
     nlst_res = conn.nlst(path)
 
+    if len(dir_res) > 0:
+        # there might be an additional output with a count of files
+        if len(dir_res[0].split()) < 6:
+            dir_res.pop(0)
+        elif len(dir_res[-1].split()) < 6:
+            dir_res.pop(-1)
+
+    count = len(dir_res)
+
+    if count != len(nlst_res):
+        # new files might be created between calling DIR and NLST
+        raise Exception("Results of DIR and NLST are of different length!")
+
     result = {}
-    rdir = sorted(dir_res, key=lambda x: (x.lower(), len(x)))
-    for f in sorted(nlst_res, key=lambda x: (x.lower(), len(x))):
-        fn = basename(f)
-        for i in range(len(rdir)):
-            if rdir[i][0] != "l" and fn == rdir[i][-len(fn):]:
-                result[fn] = rdir[i][:-len(fn)]
-                del rdir[i]
-                break
-            elif rdir[i][0] == "l" and fn in rdir[i]:
-                file = rdir[i].find(fn + " -> ")
-                if file >= 0:
-                    result[fn] = rdir[i][:file - 1]
-                    del rdir[i]
-                    break
+
+    # remove path
+    for i in range(count):
+        nlst_res[i] = basename(nlst_res[i])
+
+    # construct file name & file info
+    for i in range(count):
+        if dir_res[i][0] != "l" and nlst_res[i] == dir_res[i][-len(nlst_res[i]):]:
+            result[nlst_res[i]] = dir_res[i][:-len(nlst_res[i])]
+        elif dir_res[i][0] == "l":
+            file = dir_res[i].find(nlst_res[i] + " -> ")
+            if file >= 0 and nlst_res[i] == dir_res[i][file:file+len(nlst_res[i])]:
+                result[nlst_res[i]] = dir_res[i][:file - 1]  # subtract a white space
+            else:
+                # file names might not match because of sorting etc
+                raise Exception("Results of DIR AND NLST do not match!")
+
     return result

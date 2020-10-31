@@ -40,6 +40,10 @@ from Config import Config
 from Connection import Connection
 from Search import SearchView
 
+from queue import Queue, Empty
+from time import sleep
+from threading import Lock
+
 
 class MainView(Tk):
     """Main view"""
@@ -47,6 +51,11 @@ class MainView(Tk):
         super().__init__()
 
         style = Style(self)
+
+        self._q = Queue()
+        self.lock = Lock()
+        self.quitting = False
+        self.selected = ""
 
         self.f_img = PhotoImage(file="file.png")
         self.d_img = PhotoImage(file="folder.png")
@@ -212,9 +221,33 @@ class MainView(Tk):
                 self.profileCB.current(list(self.conf["profiles"].keys()).index(c))
             self.set_profile()
 
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.protocol("WM_DELETE_WINDOW", self.destroy_)
 
-        self.mainloop()
+        # self.mainloop()
+        while True:
+            if self.quitting:
+                self.destroy()
+                break
+
+            func = None
+            args = None
+            try:
+                func, args = self._q.get(block=False)
+            except Empty:
+                sleep(0.1)
+                self.update()
+            else:
+                if func:
+                    if args is None:
+                        func(self)
+                    else:
+                        func(self, *args)
+                    self.update()
+                    self._q.task_done()
+
+    def update_main_thread_from_tread(self, func, args=None):
+        with self.lock:
+            self._q.put([func, args], block=True)
 
     def _search(self, *args):
         """search in treeview and jump to object"""
@@ -337,6 +370,7 @@ class MainView(Tk):
         """
         if maximum:
             self.progress.configure(maximum=maximum)
+            self.update()
         if value:
             self.progress.configure(value=value)
         if step:
@@ -436,6 +470,8 @@ class MainView(Tk):
             selection = []
             for s in sel:
                 item = self.tree.item(s)
+                if item["text"] == "..":
+                    continue
                 if item["values"][0][0] == "l":
                     messagebox.showwarning("Not supported",
                                            "Can't download links yet. Skipping link.",
@@ -595,7 +631,7 @@ class MainView(Tk):
 
             self.connection.connect(
                 prof["mode"], prof["host"], prof["port"], prof["user"],
-                prof["password"], prof["encoding"], prof["path"], self
+                prof["password"], prof["encoding"], self.path.get(), self
             )
 
     def disconnect(self):
@@ -613,19 +649,22 @@ class MainView(Tk):
 
         self.connection.disconnect(cb)
 
-    def destroy(self):
+    def destroy_(self):
         """close and destroy the application"""
-        prof = self.conf["profiles"][self.profileCB.get()]
-        if self.save_last_path.get():
-            prof["save_last_path"] = True
-            prof["path"] = self.path.get()
-        else:
-            prof["save_last_path"] = False
-        self.conf["current_profile"] = self.profileCB.get()
+        prof = self.conf["profiles"].get(self.profileCB.get(), None)
+        if prof:
+            if self.save_last_path.get():
+                prof["save_last_path"] = True
+                prof["path"] = self.path.get()
+            else:
+                prof["save_last_path"] = False
+            self.conf["current_profile"] = self.profileCB.get()
         self.conf["window_size"] = f"{self.winfo_width()}x{self.winfo_height()}"
         Config.save_file(self.conf)
-        self.connection.quit()
-        super().destroy()
+        if self.connection:
+            self.connection.quit()
+
+        self.quitting = True
 
 
 if __name__ == "__main__":

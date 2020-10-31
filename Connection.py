@@ -35,6 +35,7 @@ from datetime import datetime
 from re import search, IGNORECASE
 
 from ssh2.sftp import *
+from ssh2.sftp import LIBSSH2_SFTP_ATTR_UIDGID, LIBSSH2_SFTP_ATTR_PERMISSIONS, LIBSSH2_SFTP_ATTR_ACMODTIME
 from ssh2.sftp_handle import SFTPAttributes
 from ssh2.exceptions import *
 from ftplib import error_perm
@@ -43,6 +44,68 @@ from thread_work import *
 from ftplisting import ftp_file_list
 
 from tkinter import filedialog, messagebox
+
+
+def insert(ui, datas):
+    for da in datas:
+        ui.tree.insert(
+            "", "end", text=da[0],
+            values=(da[1], da[2], da[3], da[4], da[5], da[6], da[7]),
+            image=da[8])
+
+
+def get_size(conn, mode, enc, path, size_all, isFile):
+    """
+    calculate overall size
+
+    :param conn: Connection object for sftp/ftp tasks
+    :type conn: object
+    :param mode: Connection mode - sftp/ftp
+    :type mode: str
+    :param enc: encoding for the current remote login user
+    :type enc: str
+    :param path: file or folder to get size from
+    :type path: str
+    :param size_all: ref object for the result
+    :type size_all: dict
+    :param isFile: flag to indicate file or folder
+    :type isFile: bool
+    """
+    if mode == "SFTP":
+        if not isFile:
+            def recrse(pth, obj, attr, rslt):
+                if S_ISDIR(attr.permissions) != 0:
+                    with conn.opendir(join(pth, obj)) as dirh_:
+                        for size_, buf_, attrs_ in dirh_.readdir():
+                            o_ = buf_.decode(enc)
+                            if o_ not in [".", ".."]:
+                                recrse(join(pth, obj), o_, attrs_, rslt)
+                elif S_ISREG(attrs.permissions) != 0:
+                    rslt["size"] += attrs.filesize
+
+            with conn.opendir(path) as dirh:
+                for size, buf, attrs in dirh.readdir():
+                    o = buf.decode(enc)
+                    if o not in [".", ".."]:
+                        recrse(path, o, attrs, size_all)
+        else:
+            size_all["size"] += conn.stat(path).filesize
+
+    else:  # FTP
+        if not isFile:
+            def recrse(pth, finf, rslt):
+                if finf[0] == "d":
+                    data = ftp_file_list(conn, pth)
+                    for x in data.items():
+                        recrse(join(pth, x[0]), x[1], rslt)
+                elif finf[0] == "-":
+                    rslt["size"] += int(finf.split()[4])
+
+            dat = ftp_file_list(conn, path)
+            for inf in dat.items():
+                recrse(join(path, inf[0]), inf[1], size_all)
+        else:
+            size_all["size"] += conn.size(path)
 
 
 class Connection:
@@ -106,6 +169,7 @@ class Connection:
         self._ui_worker = ThreadWork(mode, host, port, name, password, encoding, 15, "ui_worker", ui=ui)
         self._mode = mode
         self._enc = encoding
+        self.cwd = path
 
         if ui:
             ui.progress.configure(value=0)
@@ -126,6 +190,14 @@ class Connection:
         if callback:
             callback()
 
+    def progress_indeterminate_start(self, ui):
+        ui.progress.configure(value=0, mode="indeterminate")
+        ui.progress.start()
+
+    def progress_reset(self, ui):
+        ui.progress.stop()
+        ui.progress.configure(value=0, mode="determinate")
+
     def _get_listing_worker(self, conn, ui_, path_, enc, cb, sel):
         """
         get the content of the defined path and insert it to the root view
@@ -143,8 +215,7 @@ class Connection:
         :param sel: selected item
         :type sel: str
         """
-        ui_.progress.configure(value=0, mode="indeterminate")
-        ui_.progress.start()
+        self.progress_indeterminate_start(ui_)
         result = []
         if self._mode == "SFTP":
             try:
@@ -155,7 +226,10 @@ class Connection:
                     channel.close()
                     channel.wait_closed()
                     self.cwd = channel.read()[1].decode(enc).strip()
+                else:
+                    self.cwd = path_
                 with conn.opendir(self.cwd) as dirh:
+                    dat = []
                     for size, buf, attrs in sorted(dirh.readdir(),
                                                    key=(lambda f: (S_ISREG(f[2].permissions) != 0, f[1]))):
                         obj = buf.decode(enc)
@@ -170,16 +244,16 @@ class Connection:
                         elif S_ISLNK(attrs.permissions) != 0:
                             tpe = ui_.l_img
 
-                        iid = ui_.tree.insert(
-                            "", "end", text=obj,
-                            values=(
-                                filemode(attrs.permissions),
-                                datetime.fromtimestamp(attrs.mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                                attrs.filesize, attrs.uid, attrs.gid, attrs.permissions, attrs.mtime
-                            ),
-                            image=tpe
-                        )
-                        if sel and obj == sel:
+                        dat.append([
+                            obj, filemode(attrs.permissions),
+                            datetime.fromtimestamp(attrs.mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                            attrs.filesize, attrs.uid, attrs.gid, attrs.permissions, attrs.mtime, tpe
+                        ])
+
+                    ui_.update_main_thread_from_tread(insert, [dat, ])
+
+                    for iid in ui_.tree.get_children():
+                        if ui_.selected and ui_.selected == ui_.tree.item(iid, "text"):
                             ui_.tree.see(iid)
                             ui_.tree.selection_set(iid)
                             ui_.tree.focus(iid)
@@ -193,19 +267,23 @@ class Connection:
                     parent=ui_
                 )
             finally:
-                ui_.progress.stop()
-                ui_.progress.configure(value=0, mode="determinate")
+                self.progress_reset(ui_)
                 return
 
         else:  # FTP
             if self.cwd != "/":
-                ui_.tree.insert("", "end", text="..", values=("", "", "", "", "", True, ""), image=ui_.d_img)
+                insert(ui_, [["..", "", "", "", "", "", True, "", ui_.d_img], ])
             if not path_:
                 self.cwd = conn.pwd()
 
             data = ftp_file_list(conn, self.cwd)
+            ui_data = []
 
             for p in sorted(data.items(), key=lambda x: (x[1][0] == "-", x[0].lower())):
+                if not self._ui_worker.isConnected():
+                    self.progress_reset(ui_)
+                    return
+
                 d = p[1].split()
                 dt = None
                 if d[7].isnumeric():
@@ -229,18 +307,15 @@ class Connection:
                 elif d[0][0] == "l":
                     tpe = ui_.l_img
 
-                ui_.tree.insert("", "end", text=p[0], values=(
-                    d[0],
+                ui_data.append([
+                    p[0], d[0],
                     dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "",
-                    d[4],
-                    d[2],
-                    d[3],
-                    d[0][0] == "d",
-                    dt.timestamp() if dt else ""
-                ), image=tpe)
+                    d[4], d[2], d[3], d[0][0] == "d", dt.timestamp() if dt else "", tpe
+                ])
 
-        ui_.progress.stop()
-        ui_.progress.configure(value=0, mode="determinate")
+            ui_.update_main_thread_from_tread(insert, [ui_data, ])
+
+        self.progress_reset(ui_)
         ui_.path.set(self.cwd)
         if not sel and cb:
             cb()
@@ -274,7 +349,9 @@ class Connection:
                 channel.close()
                 channel.wait_closed()
                 p = channel.read()[1].decode(enc).strip()
-                self.cwd = normpath(path_)
+                if p:
+                    path_ = normpath(p)
+                self.cwd = path_
             try:
                 inf = conn.stat(path_)
             except SFTPProtocolError:
@@ -299,7 +376,6 @@ class Connection:
                     )
                     if not destination:
                         return
-                    updatefunc(maximum=inf.filesize)
                     self.download(
                         ui_,
                         "/".join((self.cwd, item_nfo[0])),
@@ -308,7 +384,8 @@ class Connection:
                         updatefunc,
                         donefunc,
                         True,
-                        destination
+                        destination,
+                        inf.filesize
                     )
         elif self._mode == "FTP" and conn:
             fd = False
@@ -346,8 +423,7 @@ class Connection:
                 )
                 if not destination:
                     return
-                updatefunc(maximum=item_nfo[3])
-                self.download(ui_, self.cwd, item_nfo[0], (ts, ts), updatefunc, donefunc, True, destination)
+                self.download(ui_, self.cwd, item_nfo[0], (ts, ts), updatefunc, donefunc, True, destination, item_nfo[3])
 
         # donefunc(message=True)
 
@@ -456,6 +532,8 @@ class Connection:
         :type size_sum_: int
         """
         if isFile_:
+            if updatefunc:
+                updatefunc(maximum=size_sum_ if size_sum_ else 0)
             if destination_:
                 overwrite = True
                 if exists(join(destination_, file_)):
@@ -468,10 +546,10 @@ class Connection:
                         try:
                             res = conn.session.scp_recv2(src_)
                             if res:
-                                with open(join(destination_, file_), "wb+") as f:
+                                with open(join(destination_, file_), "wb+", buffering=1024*1024*10) as f:
                                     size = 0
                                     while True:
-                                        siz, tbuff = res[0].read(1024 * 10)
+                                        siz, tbuff = res[0].read(1024*1024*10)
                                         if siz < 0:
                                             print("error code:", siz)
                                             res[0].close()
@@ -481,11 +559,11 @@ class Connection:
                                             sz = res[1].st_size - size
                                             f.write(tbuff[:sz])
                                             if updatefunc:
-                                                updatefunc(step=len(tbuff[:sz]))
+                                                updatefunc(value=res[1].st_size)
                                         else:
                                             f.write(tbuff)
                                             if updatefunc:
-                                                updatefunc(step=siz)
+                                                updatefunc(value=size)
                                         if size >= res[1].st_size:
                                             res[0].close()
                                             break
@@ -498,14 +576,17 @@ class Connection:
                     else:
                         try:
                             conn.cwd(self.cwd)
+                            csize = {"": 0}
 
-                            def handleDownload(block, fi):
+                            def handleDownload(block, fi, size_):
                                 fi.write(block)
+                                size_[""] += len(block)
                                 if updatefunc:
-                                    updatefunc(step=len(block))
+                                    updatefunc(value=size_[""])
 
-                            with open(join(destination_, file_), "wb+") as f:
-                                conn.retrbinary("RETR %s" % join(src_, file_), lambda blk: handleDownload(blk, f))
+                            with open(join(destination_, file_), "wb+", buffering=1024*1024*10) as f:
+                                conn.retrbinary("RETR %s" % join(src_, file_),
+                                                lambda blk: handleDownload(blk, f, csize), blocksize=1024*1024*10)
                             utime(join(destination_, file_), ts_)
                         except error_perm:
                             messagebox.showerror("Insufficient Permissions",
@@ -540,10 +621,10 @@ class Connection:
                                     messagebox.showerror("Download Error", "Could not recieve %s" % basename(orig),
                                                          parent=self)
                                 if res_:
-                                    with open(path, "wb+") as fil:
+                                    with open(path, "wb+", buffering=1024*1024*10) as fil:
                                         size_ = 0
                                         while True:
-                                            si, tbuf = res_[0].read()
+                                            si, tbuf = res_[0].read(1024*1024*10)
                                             if si < 0:
                                                 print("error code:", si)
                                                 res_[0].close()
@@ -574,7 +655,7 @@ class Connection:
                         if size_sum_ is None:
                             if updatefunc:
                                 updatefunc(mode="indeterminate", start=True, maximum=100)
-                                self._get_size(conn, self._mode, self._enc, src_, size_all, isFile=False)
+                                get_size(conn, self._mode, self._enc, src_, size_all, isFile=False)
                                 updatefunc(mode="determinate", stop=True, maximum=size_all["size"], value=0)
 
                         with conn.opendir(src_) as dirh:
@@ -582,7 +663,6 @@ class Connection:
                                 o = buf.decode(self._enc)
                                 if o not in [".", ".."]:
                                     recurse(join(src_, o), join(destination_, file_, o), (o, attrs))
-                        print("done")
                     else:  # FTP
                         conn.cwd(self.cwd)
 
@@ -596,15 +676,17 @@ class Connection:
                             elif fi[0] == "-":
                                 # print("local", join(destination, file, basename(path)))
                                 # print("remote", path)
+                                csize = {"": 0}
 
-                                def handleDownload(block, fi):
+                                def handleDownload(block, fi, size_):
                                     fi.write(block)
+                                    size_[""] += len(block)
                                     if updatefunc:
-                                        updatefunc(step=len(block))
+                                        updatefunc(value=size_[""])
 
-                                with open(join(destination_, path[len(src_) + 1:]), "wb+") as fil:
+                                with open(join(destination_, path[len(src_) + 1:]), "wb+", buffering=1024*1024*10) as fil:
                                     conn.retrbinary("RETR %s" % path,
-                                                    lambda blk: handleDownload(blk, fil))
+                                                    lambda blk: handleDownload(blk, fil, csize), blocksize=1024*1024*10)
                                 try:
                                     dt = None
                                     if ":" in fi[-5:]:
@@ -620,7 +702,7 @@ class Connection:
                         if size_sum_ is None:
                             if updatefunc:
                                 updatefunc(mode="indeterminate", start=True, maximum=100)
-                                self._get_size(conn, self._mode, self._enc, join(src_, file_), size_all, isFile=False)
+                                get_size(conn, self._mode, self._enc, join(src_, file_), size_all, isFile=False)
                                 updatefunc(mode="determinate", stop=True, maximum=size_all["size"], value=0)
 
                         dat = ftp_file_list(conn, join(src_, file_))
@@ -629,60 +711,6 @@ class Connection:
 
         if donefunc:
             donefunc(message="Download done!")
-
-    @staticmethod
-    def _get_size(conn, mode, enc, path, size_all, isFile):
-        """
-        calculate overall size
-
-        :param conn: Connection object for sftp/ftp tasks
-        :type conn: object
-        :param mode: Connection mode - sftp/ftp
-        :type mode: str
-        :param enc: encoding for the current remote login user
-        :type enc: str
-        :param path: file or folder to get size from
-        :type path: str
-        :param size_all: ref object for the result
-        :type size_all: dict
-        :param isFile: flag to indicate file or folder
-        :type isFile: bool
-        """
-        if mode == "SFTP":
-            if not isFile:
-                def recrse(pth, obj, attr, rslt):
-                    if S_ISDIR(attr.permissions) != 0:
-                        with conn.opendir(join(pth, obj)) as dirh_:
-                            for size_, buf_, attrs_ in dirh_.readdir():
-                                o_ = buf_.decode(enc)
-                                if o_ not in [".", ".."]:
-                                    recrse(join(pth, obj), o_, attrs_, rslt)
-                    elif S_ISREG(attrs.permissions) != 0:
-                        rslt["size"] += attrs.filesize
-
-                with conn.opendir(path) as dirh:
-                    for size, buf, attrs in dirh.readdir():
-                        o = buf.decode(enc)
-                        if o not in [".", ".."]:
-                            recrse(path, o, attrs, size_all)
-            else:
-                size_all["size"] += conn.stat(path).filesize
-
-        else:  # FTP
-            if not isFile:
-                def recrse(pth, finf, rslt):
-                    if finf[0] == "d":
-                        data = ftp_file_list(conn, pth)
-                        for x in data.items():
-                            recrse(join(pth, x[0]), x[1], rslt)
-                    elif finf[0] == "-":
-                        rslt["size"] += int(finf.split()[4])
-
-                dat = ftp_file_list(conn, path)
-                for inf in dat.items():
-                    recrse(join(path, inf[0]), inf[1], size_all)
-            else:
-                size_all["size"] += conn.size(path)
 
     def _download_multi_worker(self, conn, ui_, sel, updatefunc, donefunc):
         """
@@ -707,7 +735,7 @@ class Connection:
         size_all = {"size": 0}
         for item in sel:
             isFile = item["values"][0][0] == "-"
-            self._get_size(conn, self._mode, self._enc, "%s/%s" % (self.cwd, item["text"]), size_all, isFile)
+            get_size(conn, self._mode, self._enc, "%s/%s" % (self.cwd, item["text"]), size_all, isFile)
         updatefunc(mode="determinate", stop=True, maximum=size_all["size"], value=0)
 
         for item in sel:
@@ -753,6 +781,7 @@ class Connection:
         """
         if files_ and len(files_) > 0 and destination:
             if self._mode == "SFTP":
+                dat = []
                 for file in files_:
                     fifo = stat(file)
                     # chan = conn.session.scp_send64(
@@ -760,6 +789,15 @@ class Connection:
                     #     fifo.st_mode & 0o777,
                     #     fifo.st_size,
                     #     fifo.st_mtime, fifo.st_atime)
+                    # with open(file, 'rb') as lofi:
+                    #     while True:
+                    #         data = lofi.read(10 * 1024 * 1024)
+                    #         if not data:
+                    #             break
+                    #         else:
+                    #             _, sz = chan.write(data)
+                    #             if updatefunc:
+                    #                 updatefunc(step=sz)
                     mode = LIBSSH2_SFTP_S_IRUSR | \
                            LIBSSH2_SFTP_S_IWUSR | \
                            LIBSSH2_SFTP_S_IRGRP | \
@@ -775,30 +813,28 @@ class Connection:
                                     _, sz = remfi.write(data)
                                     if updatefunc:
                                         updatefunc(step=sz)
-                            attr = SFTPAttributes(fifo)
-                            # attr.filesize = fifo.st_size
-                            # print(file, datetime.fromtimestamp(fifo.st_mtime))
-                            # attr.atime = fifo.st_atime
-                            # attr.mtime = fifo.st_mtime
-                            # attr.permissions = fifo.st_mode
-                            # attr.gid = fifo.st_gid
-                            # attr.uid = fifo.st_uid
-                            remfi.fsetstat(attr)
-                    t = conn.stat("%s/%s" % (destination.strip(), basename(file)))
-                    print(datetime.fromtimestamp(t.atime), datetime.fromtimestamp(t.mtime))
+                            attrs = SFTPAttributes()
+                            attrs.flags = LIBSSH2_SFTP_ATTR_UIDGID | \
+                                          LIBSSH2_SFTP_ATTR_ACMODTIME | \
+                                          LIBSSH2_SFTP_ATTR_PERMISSIONS
+                            attrs.atime = fifo.st_atime
+                            attrs.mtime = fifo.st_mtime
+                            attrs.permissions = fifo.st_mode
+                            attrs.gid = fifo.st_gid
+                            attrs.uid = fifo.st_uid
+                            remfi.fsetstat(attrs)
 
-                    ui_.tree.insert(
-                        "", "end", text=file,
-                        values=(
-                            filemode(fifo.st_mode),
-                            datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                            fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime
-                        ),
-                        image=ui_.f_img
-                    )
+                    dat.append([
+                        basename(file), filemode(fifo.st_mode),
+                        datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                        fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime, ui_.f_img
+                    ])
+                
+                ui_.update_main_thread_from_tread(insert, [dat, ])
 
             else:
                 conn.cwd(self.cwd)
+                dat = []
                 for file in files_:
                     fifo = stat(file)
                     try:
@@ -819,15 +855,13 @@ class Connection:
                     except Exception as e:
                         print(type(e), str(e))
 
-                    ui_.tree.insert(
-                        "", "end", text=file,
-                        values=(
-                            filemode(fifo.st_mode),
-                            datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                            fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime
-                        ),
-                        image=ui_.f_img
-                    )
+                    dat.append([
+                        file, filemode(fifo.st_mode),
+                        datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                        fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime,
+                        ui_.f_img
+                    ])
+                ui_.update_main_thread_from_tread(insert, [dat, ])
 
         donefunc(message="Upload done!")
 
@@ -895,19 +929,16 @@ class Connection:
                             for data in lofi:
                                 remfi.write(data)
                                 updatefunc(step=len(data))
-                            attr = SFTPAttributes(fifo)
-                            # attr.filesize = fifo.st_size
-                            # print(file, datetime.fromtimestamp(fifo.st_mtime))
-                            # attr.atime = fifo.st_atime
-                            # attr.mtime = fifo.st_mtime
-                            # attr.permissions = fifo.st_mode
-                            # attr.gid = fifo.st_gid
-                            # attr.uid = fifo.st_uid
-                            remfi.fsetstat(attr)
-                    # t = conn.stat(
-                    #     "%s/%s" % (dest.strip(), basename(target)))
-                    # print(datetime.fromtimestamp(t.atime),
-                    #       datetime.fromtimestamp(t.mtime))
+                            attrs = SFTPAttributes()
+                            attrs.flags = LIBSSH2_SFTP_ATTR_UIDGID | \
+                                          LIBSSH2_SFTP_ATTR_ACMODTIME | \
+                                          LIBSSH2_SFTP_ATTR_PERMISSIONS
+                            attrs.atime = fifo.st_atime
+                            attrs.mtime = fifo.st_mtime
+                            attrs.permissions = fifo.st_mode
+                            attrs.gid = fifo.st_gid
+                            attrs.uid = fifo.st_uid
+                            remfi.fsetstat(attrs)
             else:
                 conn.cwd(self.cwd)
                 if islink(target):
@@ -994,10 +1025,7 @@ class Connection:
 
             donefunc(message="Upload done!")
 
-            ui_.tree.insert(
-                "", "end", text=folder_, values=("", "", "", "", "", "", ""),
-                image=ui_.d_img
-            )
+            insert(ui_, [[folder_, "", "", "", "", "", True, "", ui_.d_img], ])
 
     def _mkdir_worker(self, conn, ui_, name_, cb):
         """
@@ -1012,8 +1040,7 @@ class Connection:
         :param cb: callback function to update the UI
         :type cb: function
         """
-        ui_.progress.configure(value=0, mode="indeterminate")
-        ui_.progress.start()
+        self.progress_indeterminate_start(ui_)
 
         if self._mode == "SFTP":
             try:
@@ -1032,13 +1059,9 @@ class Connection:
 
         cb(refresh=False)
 
-        ui_.tree.insert(
-            "", "end", text=name_, values=("", "", "", "", "", "", ""),
-            image=ui_.d_img
-        )
+        insert(ui_, [[name_, "", "", "", "", "", True, "", ui_.d_img], ])
 
-        ui_.progress.stop()
-        ui_.progress.configure(value=0, mode="determinate")
+        self.progress_reset(ui_)
 
     def _rename_worker(self, conn, ui_, orig, new_, cb):
         """
@@ -1055,8 +1078,7 @@ class Connection:
         :param cb: callback function to update the UI
         :type cb: function
         """
-        ui_.progress.configure(value=0, mode="indeterminate")
-        ui_.progress.start()
+        self.progress_indeterminate_start(ui_)
         if self._mode == "SFTP":
             try:
                 conn.rename(
@@ -1071,8 +1093,7 @@ class Connection:
             except Exception as e:
                 print(e)
 
-        ui_.progress.stop()
-        ui_.progress.configure(value=0, mode="determinate")
+        self.progress_reset(ui_)
         cb()
 
     def _delete_worker(self, connection, ui_, list__, callback_):
@@ -1088,8 +1109,7 @@ class Connection:
         :param callback_: callback function to update the UI
         :type callback_: function
         """
-        ui_.progress.configure(value=0, mode="indeterminate")
-        ui_.progress.start()
+        self.progress_indeterminate_start(ui_)
 
         def do_recursive(path):
             if self._mode == "SFTP":
@@ -1155,8 +1175,7 @@ class Connection:
                 else:
                     connection.delete("/".join([self.cwd, i[1]]))
 
-            ui_.progress.stop()
-            ui_.progress.configure(value=0, mode="determinate")
+            self.progress_reset(ui_)
             if callback_:
                 callback_(i[0])
 

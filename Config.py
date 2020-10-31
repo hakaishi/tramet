@@ -189,9 +189,10 @@ class Config(Toplevel):
 
     def save(self):
         """save settings button pressed"""
-        self.root.connection.disconnect()  # disconnect
-        self.save_file(self.conf)
-        self.root.conf = self.conf
+        if self.root.connection:
+            self.root.connection.disconnect()  # disconnect
+        self.root.conf.update(self.conf)
+        self.save_file(self.root.conf)
         profs = list(self.conf["profiles"].keys())
         self.root.profileCB["values"] = profs
         if self.root.profileCB.get() == "please create a profile first" and len(profs) > 0:
@@ -340,7 +341,8 @@ class Editor(Toplevel):
             "password": self.passwd.get(),
             "path": self.path.get(),
             "encoding": self.encoding.get(),
-            "mode": self.mode.get()
+            "mode": self.mode.get(),
+            "save_last_path": self.root.conf["profiles"][self.profile.get()].get("save_last_path", False)
         }
 
         if self.profile.get() not in self.root.list.get(0, END):
