@@ -56,6 +56,8 @@ class ThreadWork:
         self._running = False
         self._abort = False
 
+        self.fileDescriptor = None
+
         self.parent_ui = ui
 
     def isConnected(self):
@@ -142,6 +144,9 @@ class ThreadWork:
                     func(self._connection)
                     self.q.task_done()
                 except Exception as e:
+                    if self.fileDescriptor:
+                        self.fileDescriptor.close()
+                        self.fileDescriptor = None
                     print("exception ftp")
                     print(e)
                     if not self._quitting:
@@ -208,11 +213,15 @@ class ThreadWork:
             self._timeout.cancel()
             self._timeout = None
         self.q.queue.clear()
+        if self.fileDescriptor:
+            self.fileDescriptor.close()
+            self.fileDescriptor = None
         if self._connection:
             try:
                 if self._mode == "SFTP":
                     self._connection.session.disconnect()
                 else:
+                    # don't wait for timeout, just close connection
                     self._connection.close()
             except Exception as e:
                 print(e)
@@ -225,11 +234,15 @@ class ThreadWork:
             self._timeout.cancel()
             self._timeout = None
         self.q.queue.clear()
+        if self.fileDescriptor:
+            self.fileDescriptor.close()
+            self.fileDescriptor = None
         if self._connection:
             try:
                 if self._mode == "SFTP":
                     self._connection.session.disconnect()
                 else:
+                    # don't wait for timeout, just close connection
                     self._connection.close()
             except Exception as e:
                 print("quit execption")

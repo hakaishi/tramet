@@ -161,15 +161,18 @@ class Connection:
         :param ui: root Tk object
         :type ui: Tk
         """
+
         if self._worker:
             self._worker.quit()
-        self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker", ui=ui)
         if self._ui_worker:
             self._ui_worker.quit()
-        self._ui_worker = ThreadWork(mode, host, port, name, password, encoding, 15, "ui_worker", ui=ui)
+
         self._mode = mode
         self._enc = encoding
         self.cwd = path
+
+        self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker", ui=ui)
+        self._ui_worker = ThreadWork(mode, host, port, name, password, encoding, 15, "ui_worker", ui=ui)
 
         if ui:
             ui.progress.configure(value=0)
@@ -576,19 +579,21 @@ class Connection:
                     else:
                         try:
                             conn.cwd(self.cwd)
-                            csize = {"": 0}
+                            csize = {"s": 0}
 
                             def handleDownload(block, fi, size_):
+                                size_["s"] += len(block)
                                 fi.write(block)
-                                size_[""] += len(block)
                                 if updatefunc:
-                                    updatefunc(value=size_[""])
+                                    updatefunc(value=size_["s"])
 
-                            with open(join(destination_, file_), "wb+", buffering=1024*1024*10) as f:
-                                conn.retrbinary("RETR %s" % join(src_, file_),
-                                                lambda blk: handleDownload(blk, f, csize), blocksize=1024*1024*10)
+                            self._worker.fileDescriptor = open(join(destination_, file_), "wb+", buffering=1024*1024*10)
+                            conn.retrbinary("RETR %s" % join(src_, file_),
+                                            lambda blk: handleDownload(blk, self._worker.fileDescriptor, csize),
+                                            blocksize=1024*1024*10)
                             utime(join(destination_, file_), ts_)
                         except error_perm:
+                            self._worker.fileDescriptor.close()
                             messagebox.showerror("Insufficient Permissions",
                                                  "Could not receive file because of insufficient permissions.",
                                                  parent=self)
@@ -760,7 +765,7 @@ class Connection:
                     except:
                         pass
                 self.download(ui_, self.cwd, item["text"], (ts, ts),
-                              None, donefunc, isFile, destination, size_all["size"])
+                              updatefunc, donefunc, isFile, destination, size_all["size"])
 
     def _upload_files_worker(self, conn, ui_, files_, destination, updatefunc, donefunc):
         """
