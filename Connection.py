@@ -253,7 +253,7 @@ class Connection:
                             attrs.filesize, attrs.uid, attrs.gid, attrs.permissions, attrs.mtime, tpe
                         ])
 
-                    ui_.update_main_thread_from_tread(insert, [dat, ])
+                    ui_.update_main_thread_from_thread(insert, [dat, ])
 
                     for iid in ui_.tree.get_children():
                         if ui_.selected and ui_.selected == ui_.tree.item(iid, "text"):
@@ -316,7 +316,7 @@ class Connection:
                     d[4], d[2], d[3], d[0][0] == "d", dt.timestamp() if dt else "", tpe
                 ])
 
-            ui_.update_main_thread_from_tread(insert, [ui_data, ])
+            ui_.update_main_thread_from_thread(insert, [ui_data, ])
 
         self.progress_reset(ui_)
         ui_.path.set(self.cwd)
@@ -835,7 +835,7 @@ class Connection:
                         fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime, ui_.f_img
                     ])
                 
-                ui_.update_main_thread_from_tread(insert, [dat, ])
+                ui_.update_main_thread_from_thread(insert, [dat, ])
 
             else:
                 conn.cwd(self.cwd)
@@ -866,7 +866,7 @@ class Connection:
                         fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime,
                         ui_.f_img
                     ])
-                ui_.update_main_thread_from_tread(insert, [dat, ])
+                ui_.update_main_thread_from_thread(insert, [dat, ])
 
         donefunc(message="Upload done!")
 
@@ -1030,7 +1030,7 @@ class Connection:
 
             donefunc(message="Upload done!")
 
-            insert(ui_, [[folder_, "", "", "", "", "", True, "", ui_.d_img], ])
+            insert(ui_, [[folder_, "d?????????", "", "", "", "", True, "", ui_.d_img], ])
 
     def _mkdir_worker(self, conn, ui_, name_, cb):
         """

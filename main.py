@@ -245,7 +245,7 @@ class MainView(Tk):
                     self.update()
                     self._q.task_done()
 
-    def update_main_thread_from_tread(self, func, args=None):
+    def update_main_thread_from_thread(self, func, args=None):
         with self.lock:
             self._q.put([func, args], block=True)
 
