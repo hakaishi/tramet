@@ -1064,7 +1064,7 @@ class Connection:
 
         cb(refresh=False)
 
-        insert(ui_, [[name_, "", "", "", "", "", True, "", ui_.d_img], ])
+        insert(ui_, [[name_, "d?????????", "", "", "", "", True, "", ui_.d_img], ])
 
         self.progress_reset(ui_)
 
