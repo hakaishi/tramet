@@ -786,7 +786,7 @@ class Connection:
         """
         if files_ and len(files_) > 0 and destination:
             if self._mode == "SFTP":
-                dat = []
+                # dat = []
                 for file in files_:
                     fifo = stat(file)
                     # chan = conn.session.scp_send64(
@@ -829,17 +829,17 @@ class Connection:
                             attrs.uid = fifo.st_uid
                             remfi.fsetstat(attrs)
 
-                    dat.append([
-                        basename(file), filemode(fifo.st_mode),
-                        datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                        fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime, ui_.f_img
-                    ])
+                    # dat.append([
+                    #     basename(file), filemode(fifo.st_mode),
+                    #     datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                    #     fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime, ui_.f_img
+                    # ])
                 
-                ui_.update_main_thread_from_thread(insert, [dat, ])
+                # ui_.update_main_thread_from_thread(insert, [dat, ])
 
             else:
                 conn.cwd(self.cwd)
-                dat = []
+                # dat = []
                 for file in files_:
                     fifo = stat(file)
                     try:
@@ -860,15 +860,15 @@ class Connection:
                     except Exception as e:
                         print(type(e), str(e))
 
-                    dat.append([
-                        file, filemode(fifo.st_mode),
-                        datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                        fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime,
-                        ui_.f_img
-                    ])
-                ui_.update_main_thread_from_thread(insert, [dat, ])
+                    # dat.append([
+                    #     file, filemode(fifo.st_mode),
+                    #     datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                    #     fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime,
+                    #     ui_.f_img
+                    # ])
+                # ui_.update_main_thread_from_thread(insert, [dat, ])
 
-        donefunc(message="Upload done!")
+        donefunc(message="Upload done!", refresh=True)
 
     def _upload_folder_worker(self, conn, ui_, folder_, destination_, updatefunc, donefunc):
         """
@@ -1028,9 +1028,9 @@ class Connection:
                 recurse(normpath("%s/%s" % (destination_, basename(folder_))),
                         normpath("%s/%s" % (folder_, basename(f_))))
 
-            donefunc(message="Upload done!")
+            donefunc(message="Upload done!", refresh=True)
 
-            insert(ui_, [[folder_, "d?????????", "", "", "", "", True, "", ui_.d_img], ])
+            # insert(ui_, [[folder_, "d?????????", "", "", "", "", True, "", ui_.d_img], ])
 
     def _mkdir_worker(self, conn, ui_, name_, cb):
         """
@@ -1062,9 +1062,9 @@ class Connection:
             except Exception as e:
                 print(e)
 
-        cb(refresh=False)
+        cb(refresh=True)
 
-        insert(ui_, [[name_, "d?????????", "", "", "", "", True, "", ui_.d_img], ])
+        # insert(ui_, [[name_, "d?????????", "", "", "", "", True, "", ui_.d_img], ])
 
         self.progress_reset(ui_)
 
