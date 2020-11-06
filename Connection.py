@@ -29,7 +29,8 @@ __license__ = "MIT"
 
 
 from os import listdir, makedirs, utime, stat, remove
-from os.path import exists, join, basename, getmtime, getsize, isdir, normpath, isfile, islink
+from os.path import exists, join as ojoin, basename, getmtime, getsize, isdir, normpath, isfile, islink
+from posixpath import join as pjoin
 from stat import S_ISDIR, S_ISLNK, S_ISREG, filemode
 from datetime import datetime
 from re import search, IGNORECASE
@@ -75,11 +76,11 @@ def get_size(conn, mode, enc, path, size_all, isFile):
         if not isFile:
             def recrse(pth, obj, attr, rslt):
                 if S_ISDIR(attr.permissions) != 0:
-                    with conn.opendir(join(pth, obj)) as dirh_:
+                    with conn.opendir(pjoin(pth, obj)) as dirh_:
                         for size_, buf_, attrs_ in dirh_.readdir():
                             o_ = buf_.decode(enc)
                             if o_ not in [".", ".."]:
-                                recrse(join(pth, obj), o_, attrs_, rslt)
+                                recrse(pjoin(pth, obj), o_, attrs_, rslt)
                 elif S_ISREG(attrs.permissions) != 0:
                     rslt["size"] += attrs.filesize
 
@@ -97,13 +98,13 @@ def get_size(conn, mode, enc, path, size_all, isFile):
                 if finf[0] == "d":
                     data = ftp_file_list(conn, pth)
                     for x in data.items():
-                        recrse(join(pth, x[0]), x[1], rslt)
+                        recrse(pjoin(pth, x[0]), x[1], rslt)
                 elif finf[0] == "-":
                     rslt["size"] += int(finf.split()[4])
 
             dat = ftp_file_list(conn, path)
             for inf in dat.items():
-                recrse(join(path, inf[0]), inf[1], size_all)
+                recrse(pjoin(path, inf[0]), inf[1], size_all)
         else:
             size_all["size"] += conn.size(path)
 
@@ -263,13 +264,14 @@ class Connection:
 
             except SocketRecvError:
                 messagebox.showinfo("Lost connection", "The connection was lost.", parent=ui_)
+                self.progress_reset(ui_)
+                return
             except (PermissionError, SFTPProtocolError, SFTPHandleError) as e:
                 messagebox.showwarning(
                     "Permission Denied",
                     "You don't have permission to see the content of this folder.",
                     parent=ui_
                 )
-            finally:
                 self.progress_reset(ui_)
                 return
 
@@ -320,6 +322,7 @@ class Connection:
 
         self.progress_reset(ui_)
         ui_.path.set(self.cwd)
+
         if not sel and cb:
             cb()
 
@@ -353,7 +356,7 @@ class Connection:
                 channel.wait_closed()
                 p = channel.read()[1].decode(enc).strip()
                 if p:
-                    path_ = normpath(p)
+                    path_ = normpath(p).replace("\\", "/")
                 self.cwd = path_
             try:
                 inf = conn.stat(path_)
@@ -364,7 +367,7 @@ class Connection:
                 return
 
             if S_ISDIR(inf.permissions) != 0:
-                self.cwd = normpath(path_)
+                self.cwd = normpath(path_).replace("\\", "/")
                 donefunc(refresh=True, path=self.cwd, selected=last)
             else:
                 if S_ISLNK(conn.lstat(path_).permissions) != 0:
@@ -381,7 +384,7 @@ class Connection:
                         return
                     self.download(
                         ui_,
-                        "/".join((self.cwd, item_nfo[0])),
+                        pjoin(self.cwd, item_nfo[0]),
                         item_nfo[0],
                         (inf.atime, inf.mtime),
                         updatefunc,
@@ -395,7 +398,7 @@ class Connection:
             if not item_nfo or item_nfo[0] == ".." or item_nfo[1][0] != "-":
                 try:  # Try to change into path. If we can't, then it's either a file or insufficient permissions
                     conn.cwd(path_)
-                    self.cwd = normpath(path_)
+                    self.cwd = normpath(path_).replace("\\", "/")
                     donefunc(refresh=True, message="", path=self.cwd)
                     fd = True
                 except error_perm:
@@ -467,15 +470,15 @@ class Connection:
                             if obj in [".", ".."]:
                                 continue
                             if S_ISDIR(attrs.permissions) != 0:
-                                recurse(join(pth, obj))
+                                recurse(pjoin(pth, obj))
                             elif S_ISREG(attrs.permissions) != 0:
                                 if not regex_ and ((sensitive_ and filename_ in obj) or (
                                         not sensitive_ and filename_.lower() in obj.lower())):
-                                    resultfunc(join(pth, obj))
+                                    resultfunc(pjoin(pth, obj))
                                 elif regex_ and search(filename_, obj, 0 if sensitive_ else IGNORECASE):
-                                    resultfunc(join(pth, obj))
+                                    resultfunc(pjoin(pth, obj))
                             elif S_ISLNK(attrs.permissions) != 0:
-                                recurse(join(pth, obj))
+                                recurse(pjoin(pth, obj))
                 except SocketRecvError as e:
                     messagebox.showinfo("Lost connection", "The connection was lost.")
                 except (PermissionError, SFTPProtocolError, SFTPHandleError) as e:
@@ -492,15 +495,15 @@ class Connection:
                     for p, i in data.items():
                         d = i.split()
                         if d[0][0] == "d":
-                            recurse(join(pth, p))
+                            recurse(pjoin(pth, p))
                         elif d[0][0] == "-":
                             if not regex_ and ((sensitive_ and filename_ in p) or (
                                     not sensitive_ and filename_.lower() in p.lower())):
-                                resultfunc(join(pth, p))
+                                resultfunc(pjoin(pth, p))
                             elif regex_ and search(filename_, p, 0 if sensitive_ else IGNORECASE):
-                                resultfunc(join(pth, p))
+                                resultfunc(pjoin(pth, p))
                         elif d[0][0] == "l":
-                            recurse(join(pth, p))
+                            recurse(pjoin(pth, p))
                 except Exception as e:
                     print(type(e), str(e))
 
@@ -539,7 +542,7 @@ class Connection:
                 updatefunc(maximum=size_sum_ if size_sum_ else 0)
             if destination_:
                 overwrite = True
-                if exists(join(destination_, file_)):
+                if exists(ojoin(destination_, file_)):
                     overwrite = messagebox.askokcancel(
                         "Overwrite existing file?",
                         "A file with the same name already exists. Do you want to override it?",
@@ -549,7 +552,7 @@ class Connection:
                         try:
                             res = conn.session.scp_recv2(src_)
                             if res:
-                                with open(join(destination_, file_), "wb+", buffering=1024*1024*10) as f:
+                                with open(ojoin(destination_, file_), "wb+", buffering=1024*1024*10) as f:
                                     size = 0
                                     while True:
                                         siz, tbuff = res[0].read(1024*1024*10)
@@ -570,7 +573,7 @@ class Connection:
                                         if size >= res[1].st_size:
                                             res[0].close()
                                             break
-                                utime(join(destination_, file_), (res[1].st_atime, res[1].st_mtime))
+                                utime(ojoin(destination_, file_), (res[1].st_atime, res[1].st_mtime))
                         except SCPProtocolError:
                             messagebox.showerror("Insufficient Permissions",
                                                  "Could not receive file because of insufficient permissions.",
@@ -587,27 +590,27 @@ class Connection:
                                 if updatefunc:
                                     updatefunc(value=size_["s"])
 
-                            self._worker.fileDescriptor = open(join(destination_, file_), "wb+", buffering=1024*1024*10)
-                            conn.retrbinary("RETR %s" % join(src_, file_),
+                            self._worker.fileDescriptor = open(ojoin(destination_, file_), "wb+", buffering=1024*1024*10)
+                            conn.retrbinary("RETR %s" % pjoin(src_, file_),
                                             lambda blk: handleDownload(blk, self._worker.fileDescriptor, csize),
                                             blocksize=1024*1024*10)
-                            utime(join(destination_, file_), ts_)
+                            utime(ojoin(destination_, file_), ts_)
                         except error_perm:
                             self._worker.fileDescriptor.close()
                             messagebox.showerror("Insufficient Permissions",
                                                  "Could not receive file because of insufficient permissions.",
                                                  parent=self)
-                            remove(join(destination_, file_))
+                            remove(ojoin(destination_, file_))
         else:
             if destination_:
                 overwrite = True
-                if exists(join(destination_, file_)):
+                if exists(ojoin(destination_, file_)):
                     overwrite = messagebox.askokcancel(
                         "Overwrite existing files?",
                         "A folder with the same name already exists. Do you want to override all contained files?",
                         parent=self)
                 else:
-                    makedirs(join(destination_, file_), exist_ok=True)
+                    makedirs(ojoin(destination_, file_), exist_ok=True)
                 if overwrite:
                     if self._mode == "SFTP":
                         def recurse(orig, path, fi):
@@ -617,7 +620,7 @@ class Connection:
                                     for size_, buf_, attrs_ in dirh_.readdir():
                                         o_ = buf_.decode(self._enc)
                                         if o_ not in [".", ".."]:
-                                            recurse(join(orig, o_), join(path, o_), (o_, attrs_))
+                                            recurse(pjoin(orig, o_), pjoin(path, o_), (o_, attrs_))
                             elif S_ISREG(fi[1].permissions) != 0:
                                 res_ = None
                                 try:
@@ -667,19 +670,19 @@ class Connection:
                             for size, buf, attrs in dirh.readdir():
                                 o = buf.decode(self._enc)
                                 if o not in [".", ".."]:
-                                    recurse(join(src_, o), join(destination_, file_, o), (o, attrs))
+                                    recurse(pjoin(src_, o), pjoin(destination_, file_, o), (o, attrs))
                     else:  # FTP
                         conn.cwd(self.cwd)
 
                         def recurse(path, fi):
                             # print(path, fi)
                             if fi[0] == "d":
-                                makedirs(join(destination_, path[len(src_) + 1:]), exist_ok=True)
+                                makedirs(ojoin(destination_, path[len(src_) + 1:]), exist_ok=True)
                                 data = ftp_file_list(conn, path)
                                 for x in data.items():
-                                    recurse(join(path, x[0]), x[1])
+                                    recurse(pjoin(path, x[0]), x[1])
                             elif fi[0] == "-":
-                                # print("local", join(destination, file, basename(path)))
+                                # print("local", pjoin(destination, file, basename(path)))
                                 # print("remote", path)
                                 csize = {"": 0}
 
@@ -689,7 +692,7 @@ class Connection:
                                     if updatefunc:
                                         updatefunc(value=size_[""])
 
-                                with open(join(destination_, path[len(src_) + 1:]), "wb+", buffering=1024*1024*10) as fil:
+                                with open(ojoin(destination_, path[len(src_) + 1:]), "wb+", buffering=1024*1024*10) as fil:
                                     conn.retrbinary("RETR %s" % path,
                                                     lambda blk: handleDownload(blk, fil, csize), blocksize=1024*1024*10)
                                 try:
@@ -699,7 +702,7 @@ class Connection:
                                             datetime.now().strftime("%Y") + " ".join(fi.split()[-3:]), "%Y%b %d %H:%M")
                                     else:
                                         dt = datetime.strptime(" ".join(fi.split()[-3:]), "%b %d %Y")
-                                    utime(join(destination_, path[len(src_) + 1:]), (dt.timestamp(), dt.timestamp()))
+                                    utime(ojoin(destination_, path[len(src_) + 1:]), (dt.timestamp(), dt.timestamp()))
                                 except Exception as e:
                                     print(type(e), e, path)
 
@@ -707,12 +710,12 @@ class Connection:
                         if size_sum_ is None:
                             if updatefunc:
                                 updatefunc(mode="indeterminate", start=True, maximum=100)
-                                get_size(conn, self._mode, self._enc, join(src_, file_), size_all, isFile=False)
+                                get_size(conn, self._mode, self._enc, pjoin(src_, file_), size_all, isFile=False)
                                 updatefunc(mode="determinate", stop=True, maximum=size_all["size"], value=0)
 
-                        dat = ftp_file_list(conn, join(src_, file_))
+                        dat = ftp_file_list(conn, pjoin(src_, file_))
                         for inf in dat.items():
-                            recurse(join(src_, file_, inf[0]), inf[1])
+                            recurse(pjoin(src_, file_, inf[0]), inf[1])
 
         if donefunc:
             donefunc(message="Download done!")
@@ -740,7 +743,7 @@ class Connection:
         size_all = {"size": 0}
         for item in sel:
             isFile = item["values"][0][0] == "-"
-            get_size(conn, self._mode, self._enc, "%s/%s" % (self.cwd, item["text"]), size_all, isFile)
+            get_size(conn, self._mode, self._enc, pjoin(self.cwd, item["text"]), size_all, isFile)
         updatefunc(mode="determinate", stop=True, maximum=size_all["size"], value=0)
 
         for item in sel:
@@ -751,15 +754,15 @@ class Connection:
                 continue
             isFile = item["values"][0][0] == "-"
             if self._mode == "SFTP":
-                nfo = conn.lstat("%s/%s" % (self.cwd, item["text"]))  # Do not follow links
-                self.download(ui_, "%s/%s" % (self.cwd, item["text"]), item["text"], (nfo.atime, nfo.mtime),
+                nfo = conn.lstat(pjoin(self.cwd, item["text"]))  # Do not follow links
+                self.download(ui_, pjoin(self.cwd, item["text"]), item["text"], (nfo.atime, nfo.mtime),
                               updatefunc, donefunc, isFile, destination, size_all["size"])
             else:
                 ts = None
                 if item["values"][-2]:
                     try:
                         ts = datetime.strptime(
-                            conn.voidcmd("MDTM %s/%s" % (self.cwd, item["text"])).split()[-1],
+                            conn.voidcmd("MDTM %s" % pjoin(self.cwd, item["text"])).split()[-1],
                             "%Y%m%d%H%M%S"
                         ).timestamp()
                     except:
@@ -790,7 +793,7 @@ class Connection:
                 for file in files_:
                     fifo = stat(file)
                     # chan = conn.session.scp_send64(
-                    #     "%s/%s" % (destination.strip(), basename(file)),
+                    #     pjoin(destination.strip(), basename(file)),
                     #     fifo.st_mode & 0o777,
                     #     fifo.st_size,
                     #     fifo.st_mtime, fifo.st_atime)
@@ -809,7 +812,7 @@ class Connection:
                            LIBSSH2_SFTP_S_IROTH
                     f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE
                     with open(file, 'rb') as lofi:
-                        with conn.open("%s/%s" % (destination.strip(), basename(file)), f_flags, mode) as remfi:
+                        with conn.open(pjoin(destination.strip(), basename(file)), f_flags, mode) as remfi:
                             while True:
                                 data = lofi.read(10 * 1024 * 1024)
                                 if not data:
@@ -849,7 +852,7 @@ class Connection:
 
                         with open(file, "rb") as f:
                             conn.storbinary(
-                                "STOR %s" % join(destination, basename(file)), f, callback=handl
+                                "STOR %s" % pjoin(destination, basename(file)), f, callback=handl
                             )
                         conn.voidcmd("MFMT %s %s" % (
                             datetime.fromtimestamp(
@@ -894,7 +897,7 @@ class Connection:
 
             def recrse(pth, rslt):
                 for f in listdir(pth):
-                    fp = join(pth, f)
+                    fp = ojoin(pth, f)
                     if isfile(fp) and not islink(fp):
                         rslt["size"] += getsize(fp)
                     elif isdir(fp) and not islink(fp):
@@ -912,10 +915,10 @@ class Connection:
                         flgs = LIBSSH2_FXF_CREAT | LIBSSH2_SFTP_S_IRWXU | \
                                LIBSSH2_SFTP_S_IRWXG | LIBSSH2_SFTP_S_IXOTH | \
                                LIBSSH2_SFTP_S_IROTH
-                        conn.mkdir("%s/%s" % (dest, basename(target)), flgs)
+                        conn.mkdir(pjoin(dest, basename(target)), flgs)
                         for f in listdir(target):
-                            recurse("%s/%s" % (dest, basename(target)),
-                                    "%s/%s" % (target, basename(f)))
+                            recurse(pjoin(dest, basename(target)),
+                                    pjoin(target, basename(f)))
                     except Exception as e:
                         print(target, type(e), str(e))
                 elif isfile(target):
@@ -927,9 +930,9 @@ class Connection:
                     f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE
                     with open(target, 'rb') as lofi:
                         # print("target", target)
-                        # print("dest", "%s/%s" % (dest.strip(), basename(target)))
+                        # print("dest", pjoin(dest.strip(), basename(target)))
                         with conn.open(
-                                "%s/%s" % (dest.strip(), basename(target)),
+                                pjoin(dest.strip(), basename(target)),
                                 f_flags, mode) as remfi:
                             for data in lofi:
                                 remfi.write(data)
@@ -950,11 +953,11 @@ class Connection:
                     return
                 elif isdir(target):
                     conn.mkd(
-                        "%s/%s" % (dest, basename(target))
+                        pjoin(dest, basename(target))
                     )
                     for f in listdir(target):
-                        recurse("%s/%s" % (dest, basename(target)),
-                                "%s/%s" % (target, basename(f)))
+                        recurse(pjoin(dest, basename(target)),
+                                pjoin(target, basename(f)))
                 elif isfile(target):
                     try:
                         def handl(blk):
@@ -962,7 +965,7 @@ class Connection:
 
                         with open(target, "rb") as f:
                             conn.storbinary(
-                                "STOR %s/%s" % (dest, basename(target)),
+                                "STOR %s" % pjoin(dest, basename(target)),
                                 f, callback=handl
                             )
                         conn.voidcmd(
@@ -970,7 +973,7 @@ class Connection:
                                 datetime.fromtimestamp(
                                     getmtime(target)
                                 ).strftime("%Y%m%d%H%M%S"),
-                                "%s/%s" % (dest, basename(target))
+                                pjoin(dest, basename(target))
                             )
                         )
                     except Exception as e:
@@ -991,7 +994,7 @@ class Connection:
                                    LIBSSH2_SFTP_S_IRWXG | LIBSSH2_SFTP_S_IXOTH | \
                                    LIBSSH2_SFTP_S_IROTH
                             conn.mkdir(fo, flgs)
-                    # rt.path.set(normpath("%s/%s" % (p, fo)))
+                    # rt.path.set(normpath(pjoin(p, fo)))
                 except Exception as e:
                     print(type(e), str(e))
                 if not isfile(folder_):
@@ -1000,7 +1003,7 @@ class Connection:
                         flgs = LIBSSH2_FXF_CREAT | LIBSSH2_SFTP_S_IRWXU | \
                                LIBSSH2_SFTP_S_IRWXG | LIBSSH2_SFTP_S_IXOTH | \
                                LIBSSH2_SFTP_S_IROTH
-                        conn.mkdir("%s/%s" % (self.cwd, basename(folder_)), flgs)
+                        conn.mkdir(pjoin(self.cwd, basename(folder_)), flgs)
                     except Exception as e:
                         pass
             else:
@@ -1014,19 +1017,19 @@ class Connection:
                     for fo in tmp.split("/"):
                         try:
                             if fo:
-                                conn.mkd("%s/%s" % (ctmp, fo))
+                                conn.mkd(pjoin(ctmp, fo))
                                 ctmp += "/" + fo
                         except Exception as e:
                             print(ctmp, e)
                     conn.mkd(
-                        "%s/%s" % (destination_, basename(folder_))
+                        pjoin(destination_, basename(folder_))
                     )
                     # rt.path.set(conn.pwd())
                 except Exception as e:
                     print("mkdir orig2 err:", e)
             for f_ in listdir(folder_):
-                recurse(normpath("%s/%s" % (destination_, basename(folder_))),
-                        normpath("%s/%s" % (folder_, basename(f_))))
+                recurse(normpath(pjoin(destination_, basename(folder_))).replace("\\", "/"),
+                        normpath(pjoin(folder_, basename(f_))).replace("\\", "/"))
 
             donefunc(message="Upload done!", refresh=True)
 
@@ -1052,7 +1055,7 @@ class Connection:
                 flgs = LIBSSH2_FXF_CREAT | LIBSSH2_SFTP_S_IRWXU | \
                        LIBSSH2_SFTP_S_IRWXG | LIBSSH2_SFTP_S_IXOTH | \
                        LIBSSH2_SFTP_S_IROTH
-                conn.mkdir(join(self.cwd, name_), flgs)
+                conn.mkdir(pjoin(self.cwd, name_), flgs)
             except Exception as e:
                 print(e)
         else:
@@ -1087,8 +1090,8 @@ class Connection:
         if self._mode == "SFTP":
             try:
                 conn.rename(
-                    join(self.cwd, orig),
-                    join(self.cwd, new_))
+                    pjoin(self.cwd, orig),
+                    pjoin(self.cwd, new_))
             except Exception as e:
                 print(e)
         else:
@@ -1126,7 +1129,7 @@ class Connection:
                         with connection.opendir(path) as dirh:
                             for size, buf, attrs in dirh.readdir():
                                 if buf.decode(self._enc) not in [".", ".."]:
-                                    do_recursive(join(path, buf.decode(self._enc)))
+                                    do_recursive(pjoin(path, buf.decode(self._enc)))
                         try:
                             connection.rmdir(path)
                         except:
@@ -1173,12 +1176,12 @@ class Connection:
             if i[1] in ["..", "."]:
                 continue
             if i[2][0] == "d":
-                do_recursive("/".join([self.cwd, i[1]]))
+                do_recursive(pjoin(self.cwd, i[1]))
             else:
                 if self._mode == "SFTP":
-                    connection.unlink("/".join([self.cwd, i[1]]))
+                    connection.unlink(pjoin(self.cwd, i[1]))
                 else:
-                    connection.delete("/".join([self.cwd, i[1]]))
+                    connection.delete(pjoin(self.cwd, i[1]))
 
             self.progress_reset(ui_)
             if callback_:
