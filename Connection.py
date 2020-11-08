@@ -234,10 +234,12 @@ class Connection:
                     self.cwd = path_
                 with conn.opendir(self.cwd) as dirh:
                     dat = []
+                    if self.cwd != "/":
+                        insert(ui_, [["..", "", "", "", "", "", True, "", ui_.d_img], ])
                     for size, buf, attrs in sorted(dirh.readdir(),
                                                    key=(lambda f: (S_ISREG(f[2].permissions) != 0, f[1]))):
                         obj = buf.decode(enc)
-                        if obj == "." or (self.cwd == "/" and obj == ".."):
+                        if obj == "." or obj == "..":
                             continue
 
                         tpe = None
@@ -254,7 +256,7 @@ class Connection:
                             attrs.filesize, attrs.uid, attrs.gid, attrs.permissions, attrs.mtime, tpe
                         ])
 
-                    ui_.update_main_thread_from_thread(insert, [dat, ])
+                    ui_.update_main_thread_from_thread(insert, [sorted(dat, key=lambda x: (x[1][0] == "-", x[0].lower())), ])
 
                     for iid in ui_.tree.get_children():
                         if ui_.selected and ui_.selected == ui_.tree.item(iid, "text"):
