@@ -28,6 +28,7 @@ __copyright__ = """
 __license__ = "MIT"
 
 
+from pathlib import Path
 from os import listdir, makedirs, utime, stat, remove
 from os.path import exists, join as ojoin, basename, getmtime, getsize, isdir, normpath, isfile, islink
 from posixpath import join as pjoin
@@ -380,7 +381,8 @@ class Connection:
                 if item_nfo[0]:
                     destination = filedialog.askdirectory(
                         title="Choose download destination",
-                        parent=ui_
+                        parent=ui_,
+                        initialdir=Path.home()
                     )
                     if not destination:
                         return
@@ -427,7 +429,8 @@ class Connection:
                     "%Y-%m-%d %H:%M:%S").timestamp()
                 destination = filedialog.askdirectory(
                     title="Choose download destination",
-                    parent=ui_
+                    parent=ui_,
+                    initialdir=Path.home()
                 )
                 if not destination:
                     return
@@ -708,7 +711,7 @@ class Connection:
         :type donefunc: function
         """
         destination = filedialog.askdirectory(
-            title="Choose download destination")
+            title="Choose download destination", initialdir=Path.home())
         if not destination:
             return
         updatefunc(value=0, maximum=100, mode="indeterminate", start=True)
