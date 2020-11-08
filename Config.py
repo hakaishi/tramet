@@ -34,6 +34,9 @@ from mttkinter.mtTkinter import *
 from tkinter.ttk import *
 from tkinter import messagebox
 
+from sys import executable
+from os.path import join, dirname, basename
+
 try:
     from tkinter.ttk import Spinbox
 except ImportError:
@@ -164,7 +167,7 @@ class Config(Toplevel):
     def load_file():
         """load settings file"""
         try:
-            with open("config", "r+") as file:
+            with open(join(dirname(executable) if basename(executable) == "tramet" else "", "config"), "r+") as file:
                 d = load(file)
                 if "profiles" not in d:
                     d = {"profiles": {}}
@@ -182,7 +185,7 @@ class Config(Toplevel):
         :type obj: dict
         """
         try:
-            with open("config", "w+") as file:
+            with open(join(dirname(executable) if basename(executable) == "tramet" else "", "config"), "w+") as file:
                 dump(obj, file, indent=4)
         except Exception as e:
             print(e)
@@ -342,7 +345,7 @@ class Editor(Toplevel):
             "path": self.path.get(),
             "encoding": self.encoding.get(),
             "mode": self.mode.get(),
-            "save_last_path": self.root.conf["profiles"][self.profile.get()].get("save_last_path", False)
+            "save_last_path": self.root.conf["profiles"].setdefault(self.profile.get(), {}).get("save_last_path", False)
         }
 
         if self.profile.get() not in self.root.list.get(0, END):

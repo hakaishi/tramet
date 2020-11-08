@@ -28,8 +28,8 @@ __copyright__ = """
 __license__ = "MIT"
 
 
-from sys import exit
-from os.path import getsize
+from sys import exit, executable
+from os.path import getsize, join, dirname, basename
 
 from mttkinter.mtTkinter import *
 from tkinter.ttk import *
@@ -57,9 +57,9 @@ class MainView(Tk):
         self.quitting = False
         self.selected = ""
 
-        self.f_img = PhotoImage(file="file.png")
-        self.d_img = PhotoImage(file="folder.png")
-        self.l_img = PhotoImage(file="link.png")
+        self.f_img = PhotoImage(file=join(dirname(executable) if basename(executable) == "tramet" else "", "file.png"))
+        self.d_img = PhotoImage(file=join(dirname(executable) if basename(executable) == "tramet" else "", "folder.png"))
+        self.l_img = PhotoImage(file=join(dirname(executable) if basename(executable) == "tramet" else "", "link.png"))
 
         self.tk_setPalette(activeBackground="azure", activeForeground="black", background="snow2",
                            disabledForeground="gray", foreground="black", hightlightBackground="cyan",
