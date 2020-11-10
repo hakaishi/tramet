@@ -8,6 +8,7 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 
 ### TODO:
 * create own icons + Tramet icon
+* add buffer size option
 * translations ?
 
 ### Known Problems:
