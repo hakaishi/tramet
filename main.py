@@ -465,7 +465,10 @@ class MainView(Tk):
         """create a context menu"""
         self.ctx = Menu(self, tearoff=False)
         # iid = self.tree.identify_row(e.y)
-        sel = self.tree.selection()
+        sel = list(self.tree.selection())
+        if len(sel) > 0 and self.tree.item(sel[0], "text") == "..":
+            sel.pop(0)
+
         if len(sel) > 0:
             selection = []
             for s in sel:
@@ -474,7 +477,7 @@ class MainView(Tk):
                     continue
                 if item["values"][0][0] == "l":
                     messagebox.showwarning("Not supported",
-                                           "Can't download links yet. Skipping link.",
+                                           "Can't work with links yet. Skipping link object.",
                                            parent=self)
                     continue
                 selection.append(item)
@@ -490,11 +493,13 @@ class MainView(Tk):
         #             command=lambda:
         #                 self.download_folder(self.tree.item(iid, "text"))
         #         )
-        self.ctx.add_command(label="Rename", command=self.rename)
+        if len(sel) > 0:
+            self.ctx.add_command(label="Rename", command=self.rename)
         self.ctx.add_command(label="Create new Folder", command=self.mkdir)
         self.ctx.add_command(label="Upload Folder", command=self.upload_folder)
         self.ctx.add_command(label="Upload Files", command=self.upload_file)
-        self.ctx.add_command(label="Delete", command=self.delete)
+        if len(sel) > 0:
+            self.ctx.add_command(label="Delete", command=self.delete)
         self.ctx.tk_popup(e.x_root, e.y_root)
 
     def mkdir(self):

@@ -40,9 +40,11 @@ from ssh2.sftp import *
 from ssh2.sftp import LIBSSH2_SFTP_ATTR_UIDGID, LIBSSH2_SFTP_ATTR_PERMISSIONS, LIBSSH2_SFTP_ATTR_ACMODTIME
 from ssh2.sftp_handle import SFTPAttributes
 from ssh2.exceptions import *
+from ssh2.error_codes import *
 from ftplib import error_perm
 
 from thread_work import *
+from threading import Lock
 from ftplisting import ftp_file_list
 
 from tkinter import filedialog, messagebox
@@ -136,6 +138,8 @@ class Connection:
         self.cwd = path
         self._mode = mode
         self._enc = encoding
+
+        self.lock = Lock()
 
         self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker", max_size=0, ui=ui)
         self._ui_worker = ThreadWork(mode, host, port, name, password, encoding, 15, "ui_worker", max_size=2, ui=ui)
@@ -238,7 +242,7 @@ class Connection:
                     if self.cwd != "/":
                         insert(ui_, [["..", "", "", "", "", "", True, "", ui_.d_img], ])
                     for size, buf, attrs in sorted(dirh.readdir(),
-                                                   key=(lambda f: (S_ISREG(f[2].permissions) != 0, f[1]))):
+                                                   key=(lambda f: (S_ISDIR(f[2].permissions) == 0, f[1].lower()))):
                         obj = buf.decode(enc)
                         if obj == "." or obj == "..":
                             continue
@@ -257,7 +261,7 @@ class Connection:
                             attrs.filesize, attrs.uid, attrs.gid, attrs.permissions, attrs.mtime, tpe
                         ])
 
-                    ui_.update_main_thread_from_thread(insert, [sorted(dat, key=lambda x: (x[1][0] == "-", x[0].lower())), ])
+                    ui_.update_main_thread_from_thread(insert, [dat, ])
 
                     for iid in ui_.tree.get_children():
                         if ui_.selected and ui_.selected == ui_.tree.item(iid, "text"):
@@ -287,7 +291,7 @@ class Connection:
             data = ftp_file_list(conn, self.cwd)
             ui_data = []
 
-            for p in sorted(data.items(), key=lambda x: (x[1][0] == "-", x[0].lower())):
+            for p in sorted(data.items(), key=lambda x: (x[1][0] != "d", x[0].lower())):
                 if not self._ui_worker.isConnected():
                     self.progress_reset(ui_)
                     return
@@ -436,8 +440,6 @@ class Connection:
                     return
                 self.download(ui_, self.cwd, item_nfo[0], (ts, ts), updatefunc, donefunc, True, destination, item_nfo[3])
 
-        # donefunc(message=True)
-
     def _search_worker(self, conn, path_, recursive_, depth_, filename_, sensitive_, regex_, resultfunc, donefunc):
         """
         search for a file in the current path or in its subfolders - executed in separate thread
@@ -560,6 +562,8 @@ class Connection:
                                 with open(ojoin(destination_, file_), "wb") as f:
                                     while True:
                                         res, buf = inpt.read()
+                                        if res == LIBSSH2_ERROR_SOCKET_RECV:
+                                            raise SocketRecvError
                                         if not buf:
                                             break
                                         else:
@@ -567,7 +571,7 @@ class Connection:
                                             if updatefunc:
                                                 updatefunc(step=len(buf))
                                 utime(ojoin(destination_, file_), (fstat.atime, fstat.mtime))
-                        except SCPProtocolError:
+                        except SCPProtocolError as e:
                             raise Exception("Insufficient Permissions")
                             # messagebox.showerror("Insufficient Permissions",
                             #                      "Could not receive file because of insufficient permissions.",
@@ -622,6 +626,8 @@ class Connection:
                                         with open(ojoin(destination_, file_), "wb") as f:
                                             while True:
                                                 res, buf = inpt.read()
+                                                if res == LIBSSH2_ERROR_SOCKET_RECV:
+                                                    raise SocketRecvError
                                                 if not buf:
                                                     break
                                                 else:
@@ -785,12 +791,12 @@ class Connection:
                            LIBSSH2_SFTP_S_IWUSR | \
                            LIBSSH2_SFTP_S_IRGRP | \
                            LIBSSH2_SFTP_S_IROTH
-                    f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE
+                    f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC
                     with open(file, 'rb') as lofi:
                         try:
                             with conn.open(pjoin(destination.strip(), basename(file)), f_flags, mode) as remfi:
                                 while True:
-                                    data = lofi.read(1024 * 1024)
+                                    data = lofi.read(1024 * 1024 * 10)
                                     if not data:
                                         break
                                     else:
@@ -798,9 +804,7 @@ class Connection:
                                         if updatefunc:
                                             updatefunc(step=sz)
                                 attrs = SFTPAttributes()
-                                attrs.flags = LIBSSH2_SFTP_ATTR_UIDGID | \
-                                              LIBSSH2_SFTP_ATTR_ACMODTIME | \
-                                              LIBSSH2_SFTP_ATTR_PERMISSIONS
+                                attrs.flags = LIBSSH2_SFTP_ATTR_ACMODTIME | LIBSSH2_SFTP_ATTR_PERMISSIONS
                                 attrs.atime = fifo.st_atime
                                 attrs.mtime = fifo.st_mtime
                                 attrs.permissions = fifo.st_mode
@@ -849,7 +853,8 @@ class Connection:
                     # ])
                 # ui_.update_main_thread_from_thread(insert, [dat, ])
 
-        donefunc(message="Upload done!", refresh=True)
+        if donefunc:
+            donefunc(message="Upload done!", refresh=True)
 
     def _upload_folder_worker(self, conn, ui_, folder_, destination_, updatefunc, donefunc):
         """
@@ -905,7 +910,7 @@ class Connection:
                            LIBSSH2_SFTP_S_IWUSR | \
                            LIBSSH2_SFTP_S_IRGRP | \
                            LIBSSH2_SFTP_S_IROTH
-                    f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE
+                    f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC
                     with open(target, 'rb') as lofi:
                         # print("target", target)
                         # print("dest", pjoin(dest.strip(), basename(target)))
@@ -913,16 +918,14 @@ class Connection:
                                 pjoin(dest.strip(), basename(target)),
                                 f_flags, mode) as remfi:
                             while True:
-                                data = lofi.read(1024*1024)
+                                data = lofi.read(1024 * 1024 * 10)
                                 if not data:
                                     break
                                 else:
                                     remfi.write(data)
                                     updatefunc(step=len(data))
                             attrs = SFTPAttributes()
-                            attrs.flags = LIBSSH2_SFTP_ATTR_UIDGID | \
-                                          LIBSSH2_SFTP_ATTR_ACMODTIME | \
-                                          LIBSSH2_SFTP_ATTR_PERMISSIONS
+                            attrs.flags = LIBSSH2_SFTP_ATTR_ACMODTIME | LIBSSH2_SFTP_ATTR_PERMISSIONS
                             attrs.atime = fifo.st_atime
                             attrs.mtime = fifo.st_mtime
                             attrs.permissions = fifo.st_mode
@@ -1013,7 +1016,8 @@ class Connection:
                 recurse(normpath(pjoin(destination_, basename(folder_))).replace("\\", "/"),
                         normpath(pjoin(folder_, basename(f_))).replace("\\", "/"))
 
-            donefunc(message="Upload done!", refresh=True)
+            if donefunc:
+                donefunc(message="Upload done!", refresh=True)
 
             # insert(ui_, [[folder_, "d?????????", "", "", "", "", True, "", ui_.d_img], ])
 
