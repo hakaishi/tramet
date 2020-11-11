@@ -117,11 +117,13 @@ class ThreadWork:
 
             self._running = True
 
-            while self._connection is None and not self._abort:  # suspend thread until there is an connection
+            while self._connection is None and not self._abort and not self._quitting:  # suspend thread until there is an connection
                 # print("waiting for connection")
                 sleep(0.3)
             if self._abort:
                 continue
+            if self._quitting:
+                return
 
             if data:
                 try:
