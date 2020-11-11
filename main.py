@@ -36,7 +36,8 @@ from tkinter.ttk import *
 from tkinter import filedialog, messagebox
 from MyDialogs import *
 
-from Config import Config
+from Config import *
+from Settings import *
 from Connection import Connection
 from Search import SearchView
 
@@ -80,10 +81,15 @@ class MainView(Tk):
         self.profiles_open = False
         self.config_window = None
 
+        self.settings_open = False
+        self.settings_window = None
+
         self.search_open = False
         self.search_window = None
 
         self.conf = Config.load_file()
+
+        self.buffer_size = self.conf.get("buffer_size", 10*1024*1024)
 
         if "window_size" in self.conf:
             self.geometry(self.conf["window_size"])
@@ -106,6 +112,7 @@ class MainView(Tk):
 
         self.filemenu = Menu(self.menubar, tearoff=False)
         self.menubar.add_cascade(label="File", menu=self.filemenu)
+        self.filemenu.add_command(label="Settings", command=self.open_settings)
         self.filemenu.add_command(label="Profiles", command=self.open_profiles)
         self.filemenu.add_command(label="Exit", command=self.destroy)
         self.menubar.add_command(label="Search", command=self.find_files)
@@ -258,12 +265,14 @@ class MainView(Tk):
 
     def search(self, pattern, item=''):
         """search for pattern in treeview"""
+        if pattern == "":
+            return False
         children = self.tree.get_children("")
         for i, child in enumerate(children):
             text = self.tree.item(child, 'text')
             if text == ".." or i <= self.found:
                 continue
-            if text.lower().startswith(pattern.lower()):
+            if pattern.lower() in text.lower():
                 self.found = i
                 self.tree.see(child)
                 self.tree.selection_set(child)
@@ -326,6 +335,15 @@ class MainView(Tk):
                 prof["path"],
                 ui=self
             )
+
+    def open_settings(self):
+        """open settings dialog or raise & focus it"""
+        if not self.settings_open:
+            self.settings_open = True
+            self.settings_window = Settings(self)
+        else:
+            self.settings_window.tkraise(self)
+            self.settings_window.focus()
 
     def open_profiles(self):
         """open profile settings dialog or raise & focus it"""
@@ -521,7 +539,7 @@ class MainView(Tk):
         if len(idx) > 0:
             yesno = messagebox.askyesno(
                 "Delete Selected",
-                "Are you sure you want to delete the selected objects?",
+                f"Are you sure you want to delete {'the selected %d objects' % len(idx) if len(idx) > 1 else self.tree.item(idx[0], 'text')}?",
                 parent=self
             )
             if yesno:

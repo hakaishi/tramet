@@ -559,9 +559,9 @@ class Connection:
                         try:
                             with conn.open(src_, LIBSSH2_FXF_READ, LIBSSH2_SFTP_S_IRUSR) as inpt:
                                 fstat = inpt.fstat()
-                                with open(ojoin(destination_, file_), "wb") as f:
+                                with open(ojoin(destination_, file_), "wb", buffering=ui_.buffer_size) as f:
                                     while True:
-                                        res, buf = inpt.read()
+                                        res, buf = inpt.read(ui_.buffer_size)
                                         if res == LIBSSH2_ERROR_SOCKET_RECV:
                                             raise SocketRecvError
                                         if not buf:
@@ -588,10 +588,10 @@ class Connection:
                                 if updatefunc:
                                     updatefunc(value=size_["s"])
 
-                            self._worker.fileDescriptor = open(ojoin(destination_, file_), "wb+", buffering=1024*1024*10)
+                            self._worker.fileDescriptor = open(ojoin(destination_, file_), "wb+", buffering=ui_.buffer_size)
                             conn.retrbinary("RETR %s" % pjoin(src_, file_),
                                             lambda blk: handleDownload(blk, self._worker.fileDescriptor, csize),
-                                            blocksize=1024*1024*10)
+                                            blocksize=ui_.buffer_size)
                             utime(ojoin(destination_, file_), ts_)
                         except error_perm:
                             self._worker.fileDescriptor.close()
@@ -623,9 +623,9 @@ class Connection:
                                 try:
                                     with conn.open(src_, LIBSSH2_FXF_READ, LIBSSH2_SFTP_S_IRUSR) as inpt:
                                         fstat = inpt.fstat()
-                                        with open(ojoin(destination_, file_), "wb") as f:
+                                        with open(ojoin(destination_, file_), "wb", buffering=ui_.buffer_size) as f:
                                             while True:
-                                                res, buf = inpt.read()
+                                                res, buf = inpt.read(ui_.buffer_size)
                                                 if res == LIBSSH2_ERROR_SOCKET_RECV:
                                                     raise SocketRecvError
                                                 if not buf:
@@ -673,9 +673,10 @@ class Connection:
                                     if updatefunc:
                                         updatefunc(value=size_[""])
 
-                                with open(ojoin(destination_, path[len(src_) + 1:]), "wb+") as fil:
+                                with open(ojoin(destination_, path[len(src_) + 1:]), "wb+", buffering=ui_.buffer_size) as fil:
                                     conn.retrbinary("RETR %s" % path,
-                                                    lambda blk: handleDownload(blk, fil, csize))
+                                                    lambda blk: handleDownload(blk, fil, csize),
+                                                    blocksize=ui_.buffer_size)
                                 try:
                                     dt = None
                                     if ":" in fi[-5:]:
@@ -792,11 +793,11 @@ class Connection:
                            LIBSSH2_SFTP_S_IRGRP | \
                            LIBSSH2_SFTP_S_IROTH
                     f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC
-                    with open(file, 'rb') as lofi:
+                    with open(file, 'rb', buffering=ui_.buffer_size) as lofi:
                         try:
                             with conn.open(pjoin(destination.strip(), basename(file)), f_flags, mode) as remfi:
                                 while True:
-                                    data = lofi.read(1024 * 1024 * 10)
+                                    data = lofi.read(ui_.buffer_size)
                                     if not data:
                                         break
                                     else:
