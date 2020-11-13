@@ -241,15 +241,17 @@ class MainView(Tk):
             try:
                 func, args = self._q.get(block=False)
             except Empty:
+                if not self.quitting and self.winfo_exists():
+                    self.update()
                 sleep(0.1)
-                self.update()
             else:
                 if func:
                     if args is None:
                         func(self)
                     else:
                         func(self, *args)
-                    self.update()
+                    if not self.quitting and self.winfo_exists():
+                        self.update()
                     self._q.task_done()
 
     def update_main_thread_from_thread(self, func, args=None):
@@ -482,10 +484,14 @@ class MainView(Tk):
     def context(self, e):
         """create a context menu"""
         self.ctx = Menu(self, tearoff=False)
-        # iid = self.tree.identify_row(e.y)
+        under_cursor = self.tree.identify_row(e.y)
         sel = list(self.tree.selection())
         if len(sel) > 0 and self.tree.item(sel[0], "text") == "..":
             sel.pop(0)
+
+        if under_cursor not in sel and self.tree.item(under_cursor, "text") != "..":
+            self.tree.selection_clear()
+            self.tree.selection_set(under_cursor)
 
         if len(sel) > 0:
             selection = []
