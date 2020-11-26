@@ -3,14 +3,15 @@ from cx_Freeze import setup, Executable
 # Dependencies are automatically detected, but it might need
 # fine tuning.
 build_options = {'packages': [], 'excludes': [],
-                 "include_files": ["file.png", "folder.png", "link.png"],
+                 "include_files": ["file.png", "folder.png", "link.png", "tramet.png"],
                  "build_exe": "build/tramet/"}
 
 import sys
-base = 'Win32GUI' if sys.platform=='win32' else None
+base = 'Win32GUI' if sys.platform == 'win32' else None
+micon = "tramet.ico" if sys.platform == "win32" else "tramet.png"
 
 executables = [
-    Executable('main.py', base=base, targetName='tramet', icon="tramet.png")
+    Executable('main.py', base=base, targetName='tramet', icon=micon)
 ]
 
 setup(name='Tramet',
