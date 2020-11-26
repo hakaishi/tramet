@@ -196,8 +196,11 @@ class SearchView(Toplevel):
 
     def destroy(self, event=None):
         """close and destroy the search dialog"""
+        self.stop = True
+        self.worker.stop_search = True
         self.parent.search_open = False
         self.parent.search_window = None
+        self.worker.quit()
         super().destroy()
 
 

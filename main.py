@@ -58,6 +58,8 @@ class MainView(Tk):
         self.quitting = False
         self.selected = ""
 
+        self.iconphoto(True, PhotoImage(file=join(dirname(executable) if basename(executable) == "tramet" else "", "tramet.png")))
+
         self.f_img = PhotoImage(file=join(dirname(executable) if basename(executable) == "tramet" else "", "file.png"))
         self.d_img = PhotoImage(file=join(dirname(executable) if basename(executable) == "tramet" else "", "folder.png"))
         self.l_img = PhotoImage(file=join(dirname(executable) if basename(executable) == "tramet" else "", "link.png"))

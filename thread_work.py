@@ -185,6 +185,9 @@ class ThreadWork:
             except Timeout:
                 self._abort = True
                 messagebox.showerror("Connection Error", "Connection timeout on login.")
+            except AuthenticationError as e:
+                self._abort = True
+                messagebox.showerror("Authentication Error", "Wrong login credentials.")
             except Exception as e:
                 print(type(e), e.args, str(e))
                 self._abort = True

@@ -7,7 +7,7 @@ File Transfer App for FTP and SFTP written in Python / tkinter
 * ssh2-python
 
 ### TODO:
-* create own icons + Tramet icon
+* add search for folder name as option in search view
 * translations ?
 
 ### Known Problems:
