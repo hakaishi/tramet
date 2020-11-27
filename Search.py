@@ -121,12 +121,7 @@ class SearchView(Toplevel):
 
         Sizegrip(self).grid(column=0, columnspan=3, sticky=E)
 
-        self.worker = Connection(
-            self.parent.connectionCB.get(),
-            self.parent.port,
-            self.parent.name.get(),
-            self.parent.password,
-            self.parent.mode, self.parent.enc, "")
+        self.worker = Connection(self.parent.mode, self.parent.enc, "")
         self.worker.connect(self.parent.mode, self.parent.connectionCB.get(), self.parent.port, self.parent.nameE.get(),
                             self.parent.password, self.parent.enc, "")
 
@@ -156,6 +151,10 @@ class SearchView(Toplevel):
             else:
                 messagebox.showwarning("No search pattern!", "Please specify a pattern to search.", parent=self)
         else:
+            if self.regex.get() and self.filename.get()[0] in ["*", "+"]:
+                messagebox.showwarning("Invalid search!", "Please insert a valid regular expression", parent=self)
+                return
+
             self.worker.search(
                 self.path.get(),
                 self.recursive.get(),

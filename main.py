@@ -315,6 +315,9 @@ class MainView(Tk):
 
     def set_profile(self, event=None):
         """set profile and reconnect"""
+        if self.connection:
+            self.connection.quit()
+
         p = self.profileCB.get()
         if p and p in self.conf["profiles"]:
             prof = self.conf["profiles"][p]
@@ -329,16 +332,7 @@ class MainView(Tk):
             self.password = prof["password"]
             self.save_last_path.set(prof.get("save_last_path", False))
 
-            self.connection = Connection(
-                prof["mode"],
-                prof["host"],
-                prof["port"],
-                prof["user"],
-                prof["password"],
-                prof["encoding"],
-                prof["path"],
-                ui=self
-            )
+            self.connection = Connection(prof["mode"], prof["encoding"], prof["path"])
 
     def open_settings(self):
         """open settings dialog or raise & focus it"""

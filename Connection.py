@@ -114,26 +114,16 @@ def get_size(conn, mode, enc, path, size_all, isFile):
 
 class Connection:
     """ manage all remote work with a ui thread and an thread for remote work """
-    def __init__(self, mode, host, port, name, password, encoding, path, ui=None):
+    def __init__(self, mode, encoding, path):
         """
         constructor for Connection
 
         :param mode: Connection mode - sftp/ftp
         :type mode: str
-        :param host: host name or ip address for remote server
-        :type host: str
-        :param port: port number for remote connection
-        :type port: int
-        :param name: user name for remote login
-        :type name: str
-        :param password: password for remote login user
-        :type password: str
         :param encoding: encoding for remote login user
         :type encoding: str
         :param path: path on remote server
         :type path: str
-        :param ui: root Tk object
-        :type ui: Tk
         """
         self.cwd = path
         self._mode = mode
@@ -141,8 +131,8 @@ class Connection:
 
         self.lock = Lock()
 
-        self._worker = ThreadWork(mode, host, port, name, password, encoding, 20, "worker", max_size=0, ui=ui)
-        self._ui_worker = ThreadWork(mode, host, port, name, password, encoding, 15, "ui_worker", max_size=2, ui=ui)
+        self._worker = None
+        self._ui_worker = None
 
         self.stop_search = False
 
