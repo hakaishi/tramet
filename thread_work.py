@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding=utf8 -*-
 
-from threading import Thread, Timer
+from threading import Thread, Timer, Lock
 from queue import Queue, Full, Empty
 from time import sleep
 
@@ -41,6 +41,8 @@ class ThreadWork:
         :type ui: Tk"""
         self.name = descr
         self._quitting = False
+        self.end = False
+        self.lock = Lock()
         self._mode = mode
         self._host = host
         self._port = port
@@ -97,7 +99,7 @@ class ThreadWork:
         """
         #: :param args:
         if func and self._connection is None:
-            Thread(target=self._connect, daemon=False).start()
+            Thread(target=self._connect, daemon=True).start()
         try:
             if not func:
                 self.q.put((None, None), block=False)
@@ -119,9 +121,17 @@ class ThreadWork:
                 # print("waiting for connection")
                 sleep(0.3)
                 continue
+            
             if self._quitting:
-                return
+                self.q.queue.clear()
+                try:
+                    self.q.task_done()
+                except:
+                    pass
+                break
+
             if self._abort:
+                self.q.task_done()
                 continue
 
             self._running = True
@@ -129,37 +139,39 @@ class ThreadWork:
             if data:
                 try:
                     func(self._connection, *data)
-                    self.q.task_done()
                 except SocketDisconnectError:
-                    print("disconnect error")
+                    with self.lock:
+                        print("disconnect error")
                     if not self._quitting:
-                        self.disconnect()
                         messagebox.showerror("Connection Error", "Lost Connection.")
-                    self.q.task_done()
-                except Exception as e:
-                    print("Unexpected Error:", type(e), str(e))
-                    if not self._quitting:
                         self.disconnect()
+                except Exception as e:
+                    with self.lock:
+                        print("Unexpected Error:", type(e), str(e))
+                    if not self._quitting:
                         messagebox.showerror("Unexpected Error", "%s" % str(e) if str(e) else type(e))
-                    self.q.task_done()
+                        self.disconnect()
             else:
                 try:
                     func(self._connection)
-                    self.q.task_done()
                 except Exception as e:
                     if self.fileDescriptor:
                         self.fileDescriptor.close()
                         self.fileDescriptor = None
-                    print("exception ftp")
-                    print(e)
+                    with self.lock:
+                        print("exception ftp")
+                        print(e)
                     if not self._quitting:
                         self.disconnect()
-                    self.q.task_done()
+                        
+            self.q.task_done()
 
             self._running = False
 
             if not self._quitting:
                 self.check_idle(True)
+
+        self.end = True
 
     def _connect(self):
         """create a connection for this thread"""
@@ -213,29 +225,12 @@ class ThreadWork:
                     self.parent_ui.progress.stop()
                     self.parent_ui.progress.configure(value=0, mode="determinate", maximum=size_bk)
 
-    def disconnect(self):
-        """disconnect this thread"""
-        if self._timeout:
-            self._timeout.cancel()
-            self._timeout = None
-        self.q.queue.clear()
-        if self.fileDescriptor:
-            self.fileDescriptor.close()
-            self.fileDescriptor = None
-        if self._connection:
-            try:
-                if self._mode == "SFTP":
-                    self._connection.session.disconnect()
-                else:
-                    # don't wait for timeout, just close connection
-                    self._connection.close()
-            except Exception as e:
-                print(e)
-        self._connection = None
-
-    def quit(self):
+    def disconnect(self, quit=False):
         """stop and clear this thread. disconnect when necessary."""
-        self._quitting = True
+        if not self._quitting:
+            self._quitting = quit
+        else:
+            return
         if self._timeout:
             self._timeout.cancel()
             self._timeout = None

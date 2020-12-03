@@ -43,7 +43,6 @@ from Search import SearchView
 
 from queue import Queue, Empty
 from time import sleep
-from threading import Lock
 
 
 class MainView(Tk):
@@ -54,7 +53,6 @@ class MainView(Tk):
         style = Style(self)
 
         self._q = Queue()
-        self.lock = Lock()
         self.quitting = False
         self.selected = ""
 
@@ -116,7 +114,7 @@ class MainView(Tk):
         self.menubar.add_cascade(label="File", menu=self.filemenu)
         self.filemenu.add_command(label="Settings", command=self.open_settings)
         self.filemenu.add_command(label="Profiles", command=self.open_profiles)
-        self.filemenu.add_command(label="Exit", command=self.destroy)
+        self.filemenu.add_command(label="Exit", command=self.destroy_)
         self.menubar.add_command(label="Search", command=self.find_files)
         self.optionbar = Menu(self.menubar, tearoff=False)
         self.optionbar.add_checkbutton(label="Save last Path", variable=self.save_last_path)
@@ -236,7 +234,7 @@ class MainView(Tk):
         while True:
             if self.quitting:
                 self.destroy()
-                break
+                exit()
 
             func = None
             args = None
@@ -248,16 +246,19 @@ class MainView(Tk):
                 sleep(0.1)
             else:
                 if func:
-                    if args is None:
-                        func(self)
-                    else:
-                        func(self, *args)
                     if not self.quitting and self.winfo_exists():
-                        self.update()
+                        try:
+                            if args is None:
+                                func(self)
+                            else:
+                                func(self, *args)
+                            self.update()
+                        except Exception as e:
+                            print(str(e), type(e))
                     self._q.task_done()
 
     def update_main_thread_from_thread(self, func, args=None):
-        with self.lock:
+        if not self.quitting:
             self._q.put([func, args], block=True)
 
     def _search(self, *args):
@@ -417,7 +418,7 @@ class MainView(Tk):
             messagebox.showinfo("DONE", message, parent=self)
             self.update_progress(mode="determinate", stop=True, value=0)
         if refresh:
-            self.connection.get_listing(self, self.connection.cwd, self.fill_tree_done, selected=selected)
+            self.connection.get_listing(self, self.connection.cwd, selected=selected)
 
     def cwd_dnl(self, event=None, ignore_item=False):
         """
@@ -465,17 +466,9 @@ class MainView(Tk):
             p = self.path.get()
             self.connection.cwd_dnl(self, p, None, self.update_progress, self.worker_done)
 
-    def fill_tree_done(self):
-        """scroll to first item after all objects are displayed"""
-        self.tree.focus_set()
-        if len(self.tree.get_children("")) > 0:
-            itm = self.tree.get_children("")[0]
-            self.tree.see(itm)
-            self.tree.focus(itm)
-
     def fill(self, event=None):
         """fill treeview with data"""
-        self.connection.get_listing(self, self.path.get(), self.fill_tree_done)
+        self.connection.get_listing(self, self.path.get())
 
     def context(self, e):
         """create a context menu"""
@@ -689,9 +682,18 @@ class MainView(Tk):
         if self.connection:
             self.connection.quit()
 
+            #i = 0
+            #if self.connection._worker and self.connection._ui_worker:
+            #    while i < 10:
+            #        i += 1
+            #        self.update()
+            #        if self.connection._worker.end and self.connection._ui_worker.end:
+            #            break
+            #        else:
+            #            sleep(0.1)
+        
         self.quitting = True
 
 
 if __name__ == "__main__":
     MainView()
-    exit()

@@ -35,6 +35,7 @@ from posixpath import join as pjoin
 from stat import S_ISDIR, S_ISLNK, S_ISREG, filemode
 from datetime import datetime
 from re import search, IGNORECASE
+from time import sleep
 
 from ssh2.sftp import *
 from ssh2.sftp import LIBSSH2_SFTP_ATTR_UIDGID, LIBSSH2_SFTP_ATTR_PERMISSIONS, LIBSSH2_SFTP_ATTR_ACMODTIME
@@ -50,12 +51,27 @@ from ftplisting import ftp_file_list
 from tkinter import filedialog, messagebox
 
 
-def insert(ui, datas):
+def insert(ui, datas, selected=""):
+    selected_iid = ""
+    first_iid = ""
     for da in datas:
-        ui.tree.insert(
+        iid = ui.tree.insert(
             "", "end", text=da[0],
             values=(da[1], da[2], da[3], da[4], da[5], da[6], da[7]),
             image=da[8])
+        if da[0] == "..":
+            first_iid = iid
+        if selected == da[0]:
+            selected_iid = iid
+
+    if selected_iid:
+        ui.tree.see(selected_iid)
+        ui.tree.selection_set(selected_iid)
+        ui.tree.focus(selected_iid)
+    elif first_iid:
+        ui.tree.see(first_iid)
+        ui.tree.selection_set(first_iid)
+        ui.tree.focus(first_iid)
 
 
 def get_size(conn, mode, enc, path, size_all, isFile):
@@ -159,9 +175,9 @@ class Connection:
         """
 
         if self._worker:
-            self._worker.quit()
+            self._worker.disconnect(quit=True)
         if self._ui_worker:
-            self._ui_worker.quit()
+            self._ui_worker.disconnect(quit=True)
 
         self._mode = mode
         self._enc = encoding
@@ -172,7 +188,7 @@ class Connection:
 
         if ui:
             ui.progress.configure(value=0)
-            self.get_listing(ui, path, ui.fill_tree_done)
+            self.get_listing(ui, path)
 
     def disconnect(self, callback=None):
         """
@@ -197,7 +213,7 @@ class Connection:
         ui.progress.stop()
         ui.progress.configure(value=0, mode="determinate")
 
-    def _get_listing_worker(self, conn, ui_, path_, enc, cb, sel):
+    def _get_listing_worker(self, conn, ui_, path_, enc, sel):
         """
         get the content of the defined path and insert it to the root view
 
@@ -214,7 +230,7 @@ class Connection:
         :param sel: selected item
         :type sel: str
         """
-        self.progress_indeterminate_start(ui_)
+        ui_.update_main_thread_from_thread(self.progress_indeterminate_start)
         result = []
         if self._mode == "SFTP":
             try:
@@ -230,7 +246,7 @@ class Connection:
                 with conn.opendir(self.cwd) as dirh:
                     dat = []
                     if self.cwd != "/":
-                        insert(ui_, [["..", "", "", "", "", "", True, "", ui_.d_img], ])
+                        dat.append(["..", "", "", "", "", "", True, "", ui_.d_img])
                     for size, buf, attrs in sorted(dirh.readdir(),
                                                    key=(lambda f: (S_ISDIR(f[2].permissions) == 0, f[1].lower()))):
                         obj = buf.decode(enc)
@@ -250,18 +266,12 @@ class Connection:
                             datetime.fromtimestamp(attrs.mtime).strftime("%Y-%m-%d %H:%M:%S"),
                             attrs.filesize, attrs.uid, attrs.gid, attrs.permissions, attrs.mtime, tpe
                         ])
-
-                    ui_.update_main_thread_from_thread(insert, [dat, ])
-
-                    for iid in ui_.tree.get_children():
-                        if ui_.selected and ui_.selected == ui_.tree.item(iid, "text"):
-                            ui_.tree.see(iid)
-                            ui_.tree.selection_set(iid)
-                            ui_.tree.focus(iid)
+                        
+                    ui_.update_main_thread_from_thread(insert, [dat, sel])
 
             except SocketRecvError:
                 messagebox.showinfo("Lost connection", "The connection was lost.", parent=ui_)
-                self.progress_reset(ui_)
+                ui_.update_main_thread_from_thread(self.progress_reset)
                 return
             except (PermissionError, SFTPProtocolError, SFTPHandleError) as e:
                 messagebox.showwarning(
@@ -269,21 +279,21 @@ class Connection:
                     "You don't have permission to see the content of this folder.",
                     parent=ui_
                 )
-                self.progress_reset(ui_)
+                ui_.update_main_thread_from_thread(self.progress_reset)
                 return
 
         else:  # FTP
+            ui_data = []
             if self.cwd != "/":
-                insert(ui_, [["..", "", "", "", "", "", True, "", ui_.d_img], ])
+                ui_data.append(["..", "", "", "", "", "", True, "", ui_.d_img])
             if not path_:
                 self.cwd = conn.pwd()
 
             data = ftp_file_list(conn, self.cwd)
-            ui_data = []
 
             for p in sorted(data.items(), key=lambda x: (x[1][0] != "d", x[0].lower())):
                 if not self._ui_worker.isConnected():
-                    self.progress_reset(ui_)
+                    ui_.update_main_thread_from_thread(self.progress_reset)
                     return
 
                 d = p[1].split()
@@ -317,11 +327,8 @@ class Connection:
 
             ui_.update_main_thread_from_thread(insert, [ui_data, ])
 
-        self.progress_reset(ui_)
+        ui_.update_main_thread_from_thread(self.progress_reset)
         ui_.path.set(self.cwd)
-
-        if not sel and cb:
-            cb()
 
     def _cwd_dnl_worker(self, conn, ui_, path_, enc, item_nfo, updatefunc, donefunc):
         """
@@ -805,14 +812,6 @@ class Connection:
                         except SFTPProtocolError:
                             raise Exception("Insufficient Permissions")
 
-                    # dat.append([
-                    #     basename(file), filemode(fifo.st_mode),
-                    #     datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                    #     fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime, ui_.f_img
-                    # ])
-                
-                # ui_.update_main_thread_from_thread(insert, [dat, ])
-
             else:
                 conn.cwd(self.cwd)
                 # dat = []
@@ -835,14 +834,6 @@ class Connection:
                         ))
                     except Exception as e:
                         print(type(e), str(e))
-
-                    # dat.append([
-                    #     file, filemode(fifo.st_mode),
-                    #     datetime.fromtimestamp(fifo.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                    #     fifo.st_size, fifo.st_uid, fifo.st_gid, fifo.st_mode, fifo.st_mtime,
-                    #     ui_.f_img
-                    # ])
-                # ui_.update_main_thread_from_thread(insert, [dat, ])
 
         if donefunc:
             donefunc(message="Upload done!", refresh=True)
@@ -1010,8 +1001,6 @@ class Connection:
             if donefunc:
                 donefunc(message="Upload done!", refresh=True)
 
-            # insert(ui_, [[folder_, "d?????????", "", "", "", "", True, "", ui_.d_img], ])
-
     def _mkdir_worker(self, conn, ui_, name_, cb):
         """
         create a remote folder - execute in separate thread
@@ -1025,7 +1014,7 @@ class Connection:
         :param cb: callback function to update the UI
         :type cb: function
         """
-        self.progress_indeterminate_start(ui_)
+        ui_.update_main_thread_from_thread(self.progress_indeterminate_start)
 
         if self._mode == "SFTP":
             try:
@@ -1044,9 +1033,7 @@ class Connection:
 
         cb(refresh=True)
 
-        # insert(ui_, [[name_, "d?????????", "", "", "", "", True, "", ui_.d_img], ])
-
-        self.progress_reset(ui_)
+        ui_.update_main_thread_from_thread(self.progress_reset)
 
     def _rename_worker(self, conn, ui_, orig, new_, cb):
         """
@@ -1063,7 +1050,7 @@ class Connection:
         :param cb: callback function to update the UI
         :type cb: function
         """
-        self.progress_indeterminate_start(ui_)
+        ui_.update_main_thread_from_thread(self.progress_indeterminate_start)
         if self._mode == "SFTP":
             try:
                 conn.rename(
@@ -1078,7 +1065,7 @@ class Connection:
             except Exception as e:
                 print(e)
 
-        self.progress_reset(ui_)
+        ui_.update_main_thread_from_thread(self.progress_reset)
         cb()
 
     def _delete_worker(self, connection, ui_, list__, callback_):
@@ -1094,7 +1081,7 @@ class Connection:
         :param callback_: callback function to update the UI
         :type callback_: function
         """
-        self.progress_indeterminate_start(ui_)
+        ui_.update_main_thread_from_thread(self.progress_indeterminate_start)
 
         def do_recursive(path):
             if self._mode == "SFTP":
@@ -1160,23 +1147,23 @@ class Connection:
                 else:
                     connection.delete(pjoin(self.cwd, i[1]))
 
-            self.progress_reset(ui_)
+            ui_.update_main_thread_from_thread(self.progress_reset)
             if callback_:
                 callback_(i[0])
 
     def quit(self):
         """disconnect, stop threads clear queues"""
         if self._worker:
-            self._worker.quit()
+            self._worker.disconnect(quit=True)
         if self._ui_worker:
-            self._ui_worker.quit()
+            self._ui_worker.disconnect(quit=True)
 
     # wrapper functions for threading
 
-    def get_listing(self, ui, path, callback, selected=""):
+    def get_listing(self, ui, path, selected=""):
         ui.tree.delete(*ui.tree.get_children())
         if self._ui_worker:
-            self._ui_worker.add_task(self._get_listing_worker, [ui, path, self._enc, callback, selected])
+            self._ui_worker.add_task(self._get_listing_worker, [ui, path, self._enc, selected])
 
     def cwd_dnl(self, ui, path, item_info, update, done):
         if self._ui_worker:
