@@ -325,7 +325,7 @@ class Connection:
                     d[4], d[2], d[3], d[0][0] == "d", dt.timestamp() if dt else "", tpe
                 ])
 
-            ui_.update_main_thread_from_thread(insert, [ui_data, ])
+            ui_.update_main_thread_from_thread(insert, [ui_data, sel])
 
         ui_.update_main_thread_from_thread(self.progress_reset)
         ui_.path.set(self.cwd)
@@ -404,7 +404,7 @@ class Connection:
                 try:  # Try to change into path. If we can't, then it's either a file or insufficient permissions
                     conn.cwd(path_)
                     self.cwd = normpath(path_).replace("\\", "/")
-                    donefunc(refresh=True, message="", path=self.cwd)
+                    donefunc(refresh=True, message="", path=self.cwd, selected=last)
                     fd = True
                 except error_perm:
                     if item_nfo[1][0] == "l":

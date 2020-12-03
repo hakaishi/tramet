@@ -54,7 +54,6 @@ class MainView(Tk):
 
         self._q = Queue()
         self.quitting = False
-        self.selected = ""
 
         self.iconphoto(True, PhotoImage(file=join(dirname(executable) if basename(executable) == "tramet" else "", "tramet.png")))
 
@@ -243,7 +242,7 @@ class MainView(Tk):
             except Empty:
                 if not self.quitting and self.winfo_exists():
                     self.update()
-                sleep(0.1)
+                sleep(0.05)
             else:
                 if func:
                     if not self.quitting and self.winfo_exists():
