@@ -221,11 +221,13 @@ class MainView(Tk):
 
         if len(self.conf["profiles"].keys()) > 0:
             c = self.conf.get("current_profile", "")
-            if not c:
+            if not c or c not in self.conf["profiles"]:
                 self.profileCB.current(0)
             else:
                 self.profileCB.current(list(self.conf["profiles"].keys()).index(c))
             self.set_profile()
+        else:
+            self.profileCB.set("please create a profile first")
 
         self.protocol("WM_DELETE_WINDOW", self.destroy_)
 

@@ -110,24 +110,24 @@ class Config(Toplevel):
         popup = Menu(self, tearoff=False)
         popup.add_command(label="create", command=lambda: self.on_double_click(None))
         if len(self.list.curselection()) > 0 or self.list.nearest(event.y) != -1:
+            bbox = self.list.bbox(self.list.nearest(event.y))
+            self.list.select_clear(0, END)
+            if bbox[1] <= event.y < bbox[1]+bbox[3]:
+                self.list.selection_set(self.list.nearest(event.y))
+
             sel = self.list.curselection()
-            if len(sel) == 0:
-                sel = [self.list.nearest(event.y)]
-            popup.add_command(label="edit", command=lambda: self.on_double_click(event, idx=sel[0]))
-            popup.add_command(label="delete", command=lambda: self.delete(event, self.list.nearest(event.y)))
+            if len(sel) > 0:
+                popup.add_command(label="edit", command=lambda: self.on_double_click(event, idx=sel[0]))
+                popup.add_command(label="delete", command=lambda: self.delete(event, self.list.nearest(event.y)))
         popup.tk_popup(event.x_root, event.y_root)
 
     def on_double_click(self, e, idx=-1):
         """Double click event to open or raise profile settings"""
-        item = []
-        if e:
-            item = self.list.curselection()
-        if len(item) == 0 and idx > -1:
-            item = [idx, ]
-
+        if e and idx < 0 < len(self.list.curselection()):
+            idx = self.list.curselection()[0]
         if not self.editor_open:
             self.editor_open = True
-            self.editor_window = Editor(self, self.list.get(item[0]) if len(item) > 0 else None)
+            self.editor_window = Editor(self, self.list.get(idx) if idx >= 0 else None, idx)
         else:
             self.editor_window.tkraise(self)
             self.editor_window.focus()
@@ -186,7 +186,7 @@ class Config(Toplevel):
         """
         try:
             with open(join(dirname(executable) if basename(executable) == "tramet" else "", "config"), "w+") as file:
-                dump(obj, file, indent=4)
+                dump(obj, file, indent=4, sort_keys=True)
         except Exception as e:
             print(e)
 
@@ -198,7 +198,8 @@ class Config(Toplevel):
         self.save_file(self.root.conf)
         profs = list(self.conf["profiles"].keys())
         self.root.profileCB["values"] = profs
-        if self.root.profileCB.get() == "please create a profile first" and len(profs) > 0:
+        if (self.root.profileCB.get() == "please create a profile first"
+                or self.root.profileCB.get() not in profs) and len(profs) > 0:
             self.root.profileCB.current(0)
         self.root.set_profile(True)
 
@@ -226,7 +227,7 @@ class Config(Toplevel):
 
 class Editor(Toplevel):
     """profile editor dialog"""
-    def __init__(self, root, item):
+    def __init__(self, root, item, idx=-1):
         """
         Contructor of Editor
 
@@ -238,6 +239,8 @@ class Editor(Toplevel):
         super().__init__(root)
 
         self.root = root
+        self.orig_item = item
+        self.orig_idx = idx
 
         frame = Frame(self)
 
@@ -337,6 +340,12 @@ class Editor(Toplevel):
             if not yesno:
                 return
 
+        # replace item in item list if name changed
+        if self.orig_item and self.orig_item != self.profile.get():
+            del self.root.conf["profiles"][self.orig_item]
+            self.root.list.delete(self.orig_idx)
+            self.root.list.insert(self.orig_idx, self.profile.get())
+
         self.root.conf["profiles"][self.profile.get()] = {
             "host": self.host.get(),
             "port": self.port.get(),
@@ -348,6 +357,7 @@ class Editor(Toplevel):
             "save_last_path": self.root.conf["profiles"].setdefault(self.profile.get(), {}).get("save_last_path", False)
         }
 
+        # add item if not in list
         if self.profile.get() not in self.root.list.get(0, END):
             self.root.list.insert(END, self.profile.get())
 
