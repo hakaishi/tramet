@@ -556,19 +556,24 @@ class Connection:
                         try:
                             with conn.open(src_, LIBSSH2_FXF_READ, LIBSSH2_SFTP_S_IRUSR) as inpt:
                                 fstat = inpt.fstat()
-                                with open(ojoin(destination_, file_), "wb", buffering=ui_.buffer_size) as f:
-                                    while True:
-                                        res, buf = inpt.read(ui_.buffer_size)
-                                        if res == LIBSSH2_ERROR_SOCKET_RECV:
-                                            raise SocketRecvError
-                                        if not buf:
-                                            break
-                                        else:
-                                            f.write(buf)
-                                            if updatefunc:
-                                                updatefunc(step=len(buf))
+                                self._worker.fileDescriptor = open(ojoin(destination_, file_), "wb", buffering=ui_.buffer_size)
+                                while True:
+                                    res, buf = inpt.read(ui_.buffer_size)
+                                    if res == LIBSSH2_ERROR_SOCKET_RECV:
+                                        raise SocketRecvError
+                                    if not buf:
+                                        break
+                                    else:
+                                        self._worker.fileDescriptor.write(buf)
+                                        if updatefunc:
+                                            updatefunc(step=len(buf))
+                                self._worker.fileDescriptor.close()
+                                self._worker.fileDescriptor = None
                                 utime(ojoin(destination_, file_), (fstat.atime, fstat.mtime))
                         except SCPProtocolError as e:
+                            if self._worker.fileDescriptor:
+                                self._worker.fileDescriptor.close()
+                                self._worker.fileDescriptor = None
                             raise Exception("Insufficient Permissions")
                             # messagebox.showerror("Insufficient Permissions",
                             #                      "Could not receive file because of insufficient permissions.",
@@ -589,9 +594,13 @@ class Connection:
                             conn.retrbinary("RETR %s" % pjoin(src_, file_),
                                             lambda blk: handleDownload(blk, self._worker.fileDescriptor, csize),
                                             blocksize=ui_.buffer_size)
+                            self._worker.fileDescriptor.close()
+                            self._worker.fileDescriptor = None
                             utime(ojoin(destination_, file_), ts_)
                         except error_perm:
-                            self._worker.fileDescriptor.close()
+                            if self._worker.fileDescriptor:
+                                self._worker.fileDescriptor.close()
+                                self._worker.fileDescriptor = None
                             messagebox.showerror("Insufficient Permissions",
                                                  "Could not receive file because of insufficient permissions.",
                                                  parent=ui_)
@@ -620,19 +629,24 @@ class Connection:
                                 try:
                                     with conn.open(src_, LIBSSH2_FXF_READ, LIBSSH2_SFTP_S_IRUSR) as inpt:
                                         fstat = inpt.fstat()
-                                        with open(ojoin(destination_, file_), "wb", buffering=ui_.buffer_size) as f:
-                                            while True:
-                                                res, buf = inpt.read(ui_.buffer_size)
-                                                if res == LIBSSH2_ERROR_SOCKET_RECV:
-                                                    raise SocketRecvError
-                                                if not buf:
-                                                    break
-                                                else:
-                                                    f.write(buf)
-                                                    if updatefunc:
-                                                        updatefunc(step=len(buf))
+                                        self._worker.fileDescriptor = open(ojoin(destination_, file_), "wb", buffering=ui_.buffer_size)
+                                        while True:
+                                            res, buf = inpt.read(ui_.buffer_size)
+                                            if res == LIBSSH2_ERROR_SOCKET_RECV:
+                                                raise SocketRecvError
+                                            if not buf:
+                                                break
+                                            else:
+                                                self._worker.fileDescriptor.write(buf)
+                                                if updatefunc:
+                                                    updatefunc(step=len(buf))
+                                        self._worker.fileDescriptor.close()
+                                        self._worker.fileDescriptor = None
                                         utime(ojoin(destination_, file_), (fstat.atime, fstat.mtime))
                                 except SCPProtocolError:
+                                    if self._worker.fileDescriptor:
+                                        self._worker.fileDescriptor.close()
+                                        self._worker.fileDescriptor = None
                                     raise Exception("Insufficient Permissions")
                                     # messagebox.showerror("Insufficient Permissions",
                                     #                      "Could not receive file because of insufficient permissions.",
@@ -670,10 +684,10 @@ class Connection:
                                     if updatefunc:
                                         updatefunc(value=size_[""])
 
-                                with open(ojoin(destination_, path[len(src_) + 1:]), "wb+", buffering=ui_.buffer_size) as fil:
-                                    conn.retrbinary("RETR %s" % path,
-                                                    lambda blk: handleDownload(blk, fil, csize),
-                                                    blocksize=ui_.buffer_size)
+                                self._worker.fileDescriptor = open(ojoin(destination_, path[len(src_) + 1:]), "wb+", buffering=ui_.buffer_size)
+                                conn.retrbinary("RETR %s" % path,
+                                                lambda blk: handleDownload(blk, self._worker.fileDescriptor, csize),
+                                                blocksize=ui_.buffer_size)
                                 try:
                                     dt = None
                                     if ":" in fi[-5:]:
@@ -681,8 +695,13 @@ class Connection:
                                             datetime.now().strftime("%Y") + " ".join(fi.split()[-3:]), "%Y%b %d %H:%M")
                                     else:
                                         dt = datetime.strptime(" ".join(fi.split()[-3:]), "%b %d %Y")
+                                    self._worker.fileDescriptor.close()
+                                    self._worker.fileDescriptor = None
                                     utime(ojoin(destination_, path[len(src_) + 1:]), (dt.timestamp(), dt.timestamp()))
                                 except Exception as e:
+                                    if self._worker.fileDescriptor:
+                                        self._worker.fileDescriptor.close()
+                                        self._worker.fileDescriptor = None
                                     print(type(e), e, path)
 
                         size_all = {"size": size_sum_ if size_sum_ is not None else 0}
@@ -790,27 +809,31 @@ class Connection:
                            LIBSSH2_SFTP_S_IRGRP | \
                            LIBSSH2_SFTP_S_IROTH
                     f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC
-                    with open(file, 'rb', buffering=ui_.buffer_size) as lofi:
-                        try:
-                            with conn.open(pjoin(destination.strip(), basename(file)), f_flags, mode) as remfi:
-                                while True:
-                                    data = lofi.read(ui_.buffer_size)
-                                    if not data:
-                                        break
-                                    else:
-                                        _, sz = remfi.write(data)
-                                        if updatefunc:
-                                            updatefunc(step=sz)
-                                attrs = SFTPAttributes()
-                                attrs.flags = LIBSSH2_SFTP_ATTR_ACMODTIME | LIBSSH2_SFTP_ATTR_PERMISSIONS
-                                attrs.atime = fifo.st_atime
-                                attrs.mtime = fifo.st_mtime
-                                attrs.permissions = fifo.st_mode
-                                attrs.gid = fifo.st_gid
-                                attrs.uid = fifo.st_uid
-                                remfi.fsetstat(attrs)
-                        except SFTPProtocolError:
-                            raise Exception("Insufficient Permissions")
+                    self._worker.fileDescriptor = open(file, 'rb', buffering=ui_.buffer_size)
+                    try:
+                        with conn.open(pjoin(destination.strip(), basename(file)), f_flags, mode) as remfi:
+                            while True:
+                                data = self._worker.fileDescriptor.read(ui_.buffer_size)
+                                if not data:
+                                    break
+                                else:
+                                    _, sz = remfi.write(data)
+                                    if updatefunc:
+                                        updatefunc(step=sz)
+                            attrs = SFTPAttributes()
+                            attrs.flags = LIBSSH2_SFTP_ATTR_ACMODTIME | LIBSSH2_SFTP_ATTR_PERMISSIONS
+                            attrs.atime = fifo.st_atime
+                            attrs.mtime = fifo.st_mtime
+                            attrs.permissions = fifo.st_mode
+                            attrs.gid = fifo.st_gid
+                            attrs.uid = fifo.st_uid
+                            remfi.fsetstat(attrs)
+                    except SFTPProtocolError:
+                        raise Exception("Insufficient Permissions")
+                    finally:
+                        if self._worker.fileDescriptor:
+                            self._worker.fileDescriptor.close()
+                            self._worker.fileDescriptor = None
 
             else:
                 conn.cwd(self.cwd)
@@ -822,10 +845,11 @@ class Connection:
                             if updatefunc:
                                 updatefunc(step=len(blk))
 
-                        with open(file, "rb") as f:
-                            conn.storbinary(
-                                "STOR %s" % pjoin(destination, basename(file)), f, callback=handl
-                            )
+                        self._worker.fileDescriptor = open(file, "rb")
+                        conn.storbinary(
+                            "STOR %s" % pjoin(destination, basename(file)), self._worker.fileDescriptor, callback=handl
+                        )
+
                         conn.voidcmd("MFMT %s %s" % (
                             datetime.fromtimestamp(
                                 getmtime(file)
@@ -834,6 +858,10 @@ class Connection:
                         ))
                     except Exception as e:
                         print(type(e), str(e))
+                    finally:
+                        if self._worker.fileDescriptor:
+                            self._worker.fileDescriptor.close()
+                            self._worker.fileDescriptor = None
 
         if donefunc:
             donefunc(message="Upload done!", refresh=True)
@@ -893,27 +921,29 @@ class Connection:
                            LIBSSH2_SFTP_S_IRGRP | \
                            LIBSSH2_SFTP_S_IROTH
                     f_flags = LIBSSH2_FXF_CREAT | LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC
-                    with open(target, 'rb') as lofi:
-                        # print("target", target)
-                        # print("dest", pjoin(dest.strip(), basename(target)))
-                        with conn.open(
-                                pjoin(dest.strip(), basename(target)),
-                                f_flags, mode) as remfi:
-                            while True:
-                                data = lofi.read(1024 * 1024 * 10)
-                                if not data:
-                                    break
-                                else:
-                                    remfi.write(data)
-                                    updatefunc(step=len(data))
-                            attrs = SFTPAttributes()
-                            attrs.flags = LIBSSH2_SFTP_ATTR_ACMODTIME | LIBSSH2_SFTP_ATTR_PERMISSIONS
-                            attrs.atime = fifo.st_atime
-                            attrs.mtime = fifo.st_mtime
-                            attrs.permissions = fifo.st_mode
-                            attrs.gid = fifo.st_gid
-                            attrs.uid = fifo.st_uid
-                            remfi.fsetstat(attrs)
+                    self._worker.fileDescriptor = open(target, 'rb')
+                    # print("target", target)
+                    # print("dest", pjoin(dest.strip(), basename(target)))
+                    with conn.open(
+                            pjoin(dest.strip(), basename(target)),
+                            f_flags, mode) as remfi:
+                        while True:
+                            data = self._worker.fileDescriptor.read(1024 * 1024 * 10)
+                            if not data:
+                                break
+                            else:
+                                remfi.write(data)
+                                updatefunc(step=len(data))
+                        attrs = SFTPAttributes()
+                        attrs.flags = LIBSSH2_SFTP_ATTR_ACMODTIME | LIBSSH2_SFTP_ATTR_PERMISSIONS
+                        attrs.atime = fifo.st_atime
+                        attrs.mtime = fifo.st_mtime
+                        attrs.permissions = fifo.st_mode
+                        attrs.gid = fifo.st_gid
+                        attrs.uid = fifo.st_uid
+                        remfi.fsetstat(attrs)
+                    self._worker.fileDescriptor.close()
+                    self._worker.fileDescriptor = None
             else:
                 conn.cwd(self.cwd)
                 if islink(target):
@@ -930,11 +960,11 @@ class Connection:
                         def handl(blk):
                             updatefunc(step=len(blk))
 
-                        with open(target, "rb") as f:
-                            conn.storbinary(
-                                "STOR %s" % pjoin(dest, basename(target)),
-                                f, callback=handl
-                            )
+                        self._worker.fileDescriptor = open(target, "rb")
+                        conn.storbinary(
+                            "STOR %s" % pjoin(dest, basename(target)),
+                            self._worker.fileDescriptor, callback=handl
+                        )
                         conn.voidcmd(
                             "MDTM %s %s" % (
                                 datetime.fromtimestamp(
@@ -945,6 +975,10 @@ class Connection:
                         )
                     except Exception as e:
                         print(type(e), str(e))
+                    finally:
+                        if self._worker.fileDescriptor:
+                            self._worker.fileDescriptor.close()
+                            self._worker.fileDescriptor = None
 
         if folder_ and destination_:
             if self._mode == "SFTP":

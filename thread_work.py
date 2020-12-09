@@ -151,18 +151,23 @@ class ThreadWork:
                     if not self._quitting:
                         messagebox.showerror("Unexpected Error", "%s" % str(e) if str(e) else type(e))
                         self.disconnect()
+                finally:
+                    if self.fileDescriptor:
+                        self.fileDescriptor.close()
+                        self.fileDescriptor = None
             else:
                 try:
                     func(self._connection)
                 except Exception as e:
-                    if self.fileDescriptor:
-                        self.fileDescriptor.close()
-                        self.fileDescriptor = None
                     with self.lock:
                         print("exception ftp")
                         print(e)
                     if not self._quitting:
                         self.disconnect()
+                finally:
+                    if self.fileDescriptor:
+                        self.fileDescriptor.close()
+                        self.fileDescriptor = None
                         
             self.q.task_done()
 
