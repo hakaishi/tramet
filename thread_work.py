@@ -40,7 +40,7 @@ class ThreadWork:
         :param ui: parent Tk object
         :type ui: Tk"""
         self.name = descr
-        self._quitting = False
+        self.quitting = False
         self.end = False
         self.lock = Lock()
         self._mode = mode
@@ -110,19 +110,19 @@ class ThreadWork:
 
     def _do_work(self):
         """check and wait for a connection and then execute the function with given parameters"""
-        while not self._quitting:
+        while not self.quitting:
             try:
                 func, data = self.q.get(block=False)
             except Empty:
                 sleep(0.1)
                 continue
 
-            while self._connection is None and not self._abort and not self._quitting:  # suspend thread until there is an connection
+            while self._connection is None and not self._abort and not self.quitting:  # suspend thread until there is an connection
                 # print("waiting for connection")
                 sleep(0.3)
                 continue
             
-            if self._quitting:
+            if self.quitting:
                 self.q.queue.clear()
                 try:
                     self.q.task_done()
@@ -142,13 +142,13 @@ class ThreadWork:
                 except SocketDisconnectError:
                     with self.lock:
                         print("disconnect error")
-                    if not self._quitting:
+                    if not self.quitting:
                         messagebox.showerror("Connection Error", "Lost Connection.")
                         self.disconnect()
                 except Exception as e:
                     with self.lock:
                         print("Unexpected Error:", type(e), str(e))
-                    if not self._quitting:
+                    if not self.quitting:
                         messagebox.showerror("Unexpected Error", "%s" % str(e) if str(e) else type(e))
                         self.disconnect()
                 finally:
@@ -162,7 +162,7 @@ class ThreadWork:
                     with self.lock:
                         print("exception ftp")
                         print(e)
-                    if not self._quitting:
+                    if not self.quitting:
                         self.disconnect()
                 finally:
                     if self.fileDescriptor:
@@ -173,7 +173,7 @@ class ThreadWork:
 
             self._running = False
 
-            if not self._quitting:
+            if not self.quitting:
                 self.check_idle(True)
 
         self.end = True
@@ -232,17 +232,14 @@ class ThreadWork:
 
     def disconnect(self, quit=False):
         """stop and clear this thread. disconnect when necessary."""
-        if not self._quitting:
-            self._quitting = quit
+        if not self.quitting:
+            self.quitting = quit
         else:
             return
         if self._timeout:
             self._timeout.cancel()
             self._timeout = None
         self.q.queue.clear()
-        if self.fileDescriptor:
-            self.fileDescriptor.close()
-            self.fileDescriptor = None
         if self._connection:
             try:
                 if self._mode == "SFTP":
@@ -254,6 +251,10 @@ class ThreadWork:
                 print("quit execption")
                 print(e)
         self._connection = None
+
+        if self.fileDescriptor:
+            self.fileDescriptor.close()
+            self.fileDescriptor = None
 
 
 def singleShot(func, args=None):

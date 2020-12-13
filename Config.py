@@ -193,7 +193,7 @@ class Config(Toplevel):
     def save(self):
         """save settings button pressed"""
         if self.root.connection:
-            self.root.connection.disconnect()  # disconnect
+            self.root.connection.quit()  # quit connection
         self.root.conf.update(self.conf)
         self.save_file(self.root.conf)
         profs = list(self.conf["profiles"].keys())

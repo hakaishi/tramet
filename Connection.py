@@ -541,6 +541,8 @@ class Connection:
         :param size_sum_: overall bytes to download
         :type size_sum_: int
         """
+        if self._worker.quitting:
+            return
         if isFile_:
             if updatefunc:
                 updatefunc(maximum=size_sum_ if size_sum_ else 0)
@@ -618,6 +620,8 @@ class Connection:
                 if overwrite:
                     if self._mode == "SFTP":
                         def recurse(orig, path, fi):
+                            if self._worker.quitting:
+                                return
                             if S_ISDIR(fi[1].permissions) != 0:
                                 makedirs(path, exist_ok=True)
                                 with conn.opendir(orig) as dirh_:
@@ -667,6 +671,8 @@ class Connection:
                         conn.cwd(self.cwd)
 
                         def recurse(path, fi):
+                            if self._worker.quitting:
+                                return
                             # print(path, fi)
                             if fi[0] == "d":
                                 makedirs(ojoin(destination_, path[len(src_) + 1:]), exist_ok=True)
@@ -715,7 +721,7 @@ class Connection:
                         for inf in dat.items():
                             recurse(pjoin(src_, file_, inf[0]), inf[1])
 
-        if donefunc:
+        if not self._worker.quitting and donefunc:
             donefunc(message="Download done!")
 
     def _download_multi_worker(self, conn, ui_, sel, updatefunc, donefunc):
@@ -789,6 +795,8 @@ class Connection:
             if self._mode == "SFTP":
                 # dat = []
                 for file in files_:
+                    if self._worker.quitting:
+                        return
                     fifo = stat(file)
                     # chan = conn.session.scp_send64(
                     #     pjoin(destination.strip(), basename(file)),
@@ -839,15 +847,18 @@ class Connection:
                 conn.cwd(self.cwd)
                 # dat = []
                 for file in files_:
-                    fifo = stat(file)
+                    # fifo = stat(file)
+                    if self._worker.quitting:
+                        return
                     try:
                         def handl(blk):
                             if updatefunc:
                                 updatefunc(step=len(blk))
 
-                        self._worker.fileDescriptor = open(file, "rb")
+                        self._worker.fileDescriptor = open(file, "rb", buffering=ui_.buffer_size)
                         conn.storbinary(
-                            "STOR %s" % pjoin(destination, basename(file)), self._worker.fileDescriptor, callback=handl
+                            "STOR %s" % pjoin(destination, basename(file)), self._worker.fileDescriptor,
+                            blocksize=ui_.buffer_size, callback=handl
                         )
 
                         conn.voidcmd("MFMT %s %s" % (
@@ -863,7 +874,7 @@ class Connection:
                             self._worker.fileDescriptor.close()
                             self._worker.fileDescriptor = None
 
-        if donefunc:
+        if not self._worker.quitting and donefunc:
             donefunc(message="Upload done!", refresh=True)
 
     def _upload_folder_worker(self, conn, ui_, folder_, destination_, updatefunc, donefunc):
@@ -963,7 +974,7 @@ class Connection:
                         self._worker.fileDescriptor = open(target, "rb")
                         conn.storbinary(
                             "STOR %s" % pjoin(dest, basename(target)),
-                            self._worker.fileDescriptor, callback=handl
+                            self._worker.fileDescriptor, blocksize=ui_.buffer_size, callback=handl
                         )
                         conn.voidcmd(
                             "MDTM %s %s" % (
