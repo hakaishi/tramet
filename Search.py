@@ -198,9 +198,8 @@ class SearchView(Toplevel):
         self.stop = True
         self.worker.stop_search = True
         self.parent.search_open = False
-        self.parent.search_window = None
         self.worker.quit()
-        super().destroy()
+        super(SearchView, self).destroy()
 
 
 if __name__ == "__main__":

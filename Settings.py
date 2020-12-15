@@ -91,9 +91,8 @@ class Settings(Toplevel):
     def destroy(self, event=None):
         """close & destroy profile editor dialog"""
         self.root.settings_open = False
-        self.root.settings_window = None
         Config.save_file(self.conf)
-        super().destroy()
+        super(Settings, self).destroy()
 
 
 if __name__ == "__main__":

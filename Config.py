@@ -201,7 +201,8 @@ class Config(Toplevel):
         if (self.root.profileCB.get() == "please create a profile first"
                 or self.root.profileCB.get() not in profs) and len(profs) > 0:
             self.root.profileCB.current(0)
-        self.root.set_profile(True)
+        else:
+            self.root.set_profile()
 
         self.destroy()
 
@@ -221,8 +222,7 @@ class Config(Toplevel):
     def destroy(self):
         """close & destroy settings dialog"""
         self.root.profiles_open = False
-        self.root.config_window = None
-        super().destroy()
+        super(Config, self).destroy()
 
 
 class Editor(Toplevel):
@@ -354,7 +354,7 @@ class Editor(Toplevel):
             "path": self.path.get(),
             "encoding": self.encoding.get(),
             "mode": self.mode.get(),
-            "save_last_path": self.root.conf["profiles"].setdefault(self.profile.get(), {}).get("save_last_path", False)
+            "save_last_path": self.root.conf["profiles"].get(self.profile.get(), {}).get("save_last_path", False)
         }
 
         # add item if not in list
@@ -366,8 +366,7 @@ class Editor(Toplevel):
     def destroy(self, event=None):
         """close & destroy profile editor dialog"""
         self.root.editor_open = False
-        self.root.editor_window = None
-        super().destroy()
+        super(Editor, self).destroy()
 
 
 if __name__ == "__main__":

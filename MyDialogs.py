@@ -91,7 +91,7 @@ class AskString(Toplevel):
 
     def destroy(self, event=None):
         self.parent.focus_set()
-        super().destroy()
+        super(AskString, self).destroy()
 
 
 __all__ = ["AskString", ]

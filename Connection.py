@@ -1200,8 +1200,10 @@ class Connection:
         """disconnect, stop threads clear queues"""
         if self._worker:
             self._worker.disconnect(quit=True)
+            self._worker = None
         if self._ui_worker:
             self._ui_worker.disconnect(quit=True)
+            self._ui_worker = None
 
     # wrapper functions for threading
 

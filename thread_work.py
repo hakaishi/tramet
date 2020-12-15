@@ -50,8 +50,6 @@ class ThreadWork:
         self._passwd = password
         self._enc = enc
         self.q = Queue(max_size)
-        self._thread = Thread(target=self._do_work, daemon=False)
-        self._thread.start()
         self._connection = None
         self._timeout = None
         self._timeout_seconds = timeout
@@ -61,6 +59,9 @@ class ThreadWork:
         self.fileDescriptor = None
 
         self.parent_ui = ui
+
+        self._thread = Thread(target=self._do_work, daemon=False)
+        self._thread.start()
 
     def isConnected(self):
         """
@@ -118,7 +119,7 @@ class ThreadWork:
                 continue
 
             while self._connection is None and not self._abort and not self.quitting:  # suspend thread until there is an connection
-                # print("waiting for connection")
+                # print(f"{self.name} waiting for connection")
                 sleep(0.3)
                 continue
             
