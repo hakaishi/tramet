@@ -34,8 +34,9 @@ from mttkinter.mtTkinter import *
 from tkinter.ttk import *
 from tkinter import messagebox
 
-from sys import executable
-from os.path import join, dirname, basename
+from sys import executable, platform
+from os.path import join, dirname, basename, expandvars, expanduser, exists
+from os import mkdir
 
 try:
     from tkinter.ttk import Spinbox
@@ -167,7 +168,14 @@ class Config(Toplevel):
     def load_file():
         """load settings file"""
         try:
-            with open(join(dirname(executable) if basename(executable) == "tramet" else "", "config"), "r+") as file:
+            path = ""
+            if platform in ["nt", "win32"]:
+                path += join(expandvars("%APPDATA%"), "tramet")
+            elif platform.startswith("linux"):
+                path += join(expanduser("~"), ".config", "tramet")
+            if not exists(path):
+                mkdir(path)
+            with open(join(path, "config"), "r+") as file:
                 d = load(file)
                 if "profiles" not in d:
                     d = {"profiles": {}}
@@ -184,8 +192,15 @@ class Config(Toplevel):
         :param obj: settings object
         :type obj: dict
         """
+        path = ""
+        if platform in ["nt", "win32"]:
+            path += join(expandvars("%APPDATA%"), "tramet")
+        elif platform.startswith("linux"):
+            path += join(expanduser("~"), ".config", "tramet")
+        if not exists(path):
+            mkdir(path)
         try:
-            with open(join(dirname(executable) if basename(executable) == "tramet" else "", "config"), "w+") as file:
+            with open(join(path, "config"), "w+") as file:
                 dump(obj, file, indent=4, sort_keys=True)
         except Exception as e:
             print(e)
