@@ -216,8 +216,8 @@ class Config(Toplevel):
         if (self.root.profileCB.get() == "please create a profile first"
                 or self.root.profileCB.get() not in profs) and len(profs) > 0:
             self.root.profileCB.current(0)
-        else:
-            self.root.set_profile()
+        
+        self.root.set_profile()
 
         self.destroy()
 
