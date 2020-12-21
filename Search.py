@@ -51,6 +51,7 @@ class SearchView(Toplevel):
 
         self.stop = False
         self.parent = root
+        self.buffer_size = root.buffer_size
 
         self.geometry("600x400")
         self.geometry("+%d+%d" % (root.winfo_x() + 50, root.winfo_y() + 25))
